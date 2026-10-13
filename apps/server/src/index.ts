@@ -11,6 +11,8 @@ import { assetsDirFor, baseName, dirOf, newMapSource, relativePath } from '@mind
 import { HttpError, MAP_EXT, Vault, hashContent, isHiddenRel } from './vault';
 import { Indexer } from './indexer';
 import { StudyStore } from './study';
+import { SyncEngine } from './sync';
+import { SupabaseRemote, readSupabaseConfig } from './supabase-remote';
 import { buildMoveMap, rewriteLinksAfterMove } from './linkmove';
 import { SAMPLE_MAP, SAMPLE_MAP_2, SAMPLE_PAGE } from './sample';
 
@@ -27,6 +29,16 @@ const port = Number(argValue('--port') ?? process.env.MINDMAP_PORT ?? 4321);
 const vault = new Vault(vaultRoot);
 const indexer = new Indexer(vault);
 const study = new StudyStore(path.join(vault.internalDir, 'study.json'));
+
+// 클라우드 동기화 설정은 저장소 루트의 .env.sync (git 에 올라가지 않음) 또는 환경 변수에서 읽는다
+try {
+  process.loadEnvFile(path.join(repoRoot, '.env.sync'));
+} catch {
+  /* 파일이 없으면 환경 변수만 사용 */
+}
+const syncConfig = readSupabaseConfig();
+const syncRemote = syncConfig ? new SupabaseRemote(syncConfig) : null;
+const sync = syncRemote ? new SyncEngine(vault, syncRemote) : null;
 
 async function initVault() {
   const fresh = !existsSync(vaultRoot);
@@ -55,6 +67,7 @@ const broadcast = (e: VaultEvent) => listeners.forEach((l) => l(e));
 
 let treeTimer: NodeJS.Timeout | undefined;
 const treeChanged = () => {
+  sync?.schedule();
   clearTimeout(treeTimer);
   treeTimer = setTimeout(() => broadcast({ type: 'tree' }), 150);
 };
@@ -93,6 +106,7 @@ function startWatcher() {
     awaitWriteFinish: { stabilityThreshold: 120, pollInterval: 40 },
   });
   const onFile = async (abs: string, removed: boolean) => {
+    sync?.schedule();
     if (!abs.endsWith('.md')) return;
     const rel = vault.toRel(abs);
     void indexer.update(rel);
@@ -122,6 +136,12 @@ app.onError((err, c) => {
   if (err instanceof HttpError) return c.json({ error: err.message, ...(err.body as object) }, err.status);
   console.error(err);
   return c.json({ error: String(err) }, 500);
+});
+
+app.get('/api/sync', (c) => c.json(sync ? { enabled: true, ...sync.status } : { enabled: false }));
+app.post('/api/sync', async (c) => {
+  if (!sync) throw new HttpError(400, '클라우드 동기화가 설정되어 있지 않습니다');
+  return c.json({ enabled: true, ...(await sync.run()) });
 });
 
 app.get('/api/info', (c) => c.json({ vault: vaultRoot }));
@@ -271,6 +291,13 @@ if (existsSync(dist)) {
 await initVault();
 startWatcher();
 void indexer.start();
+if (sync && syncRemote) {
+  void sync.run().catch(() => {});
+  setInterval(() => void sync.run().catch(() => {}), 30_000).unref();
+  // 모바일에서 바뀌면 바로 받아 온다. 실패해도 30초 주기 동기화가 대신한다.
+  syncRemote.subscribe(() => sync.schedule(500)).catch((e) => console.error('[sync] 실시간 구독 실패:', e.message));
+  console.log('  클라우드 동기화: 켜짐');
+}
 serve({ fetch: app.fetch, port, hostname: '127.0.0.1' }, (info) => {
   console.log(`\n  마인드맵 서버: http://localhost:${info.port}`);
   console.log(`  Vault: ${vaultRoot}\n`);
