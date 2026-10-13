@@ -10,6 +10,7 @@ import { streamSSE } from 'hono/streaming';
 import { assetsDirFor, baseName, dirOf, newMapSource, relativePath } from '@mindmap/core';
 import { HttpError, MAP_EXT, Vault, hashContent, isHiddenRel } from './vault';
 import { Indexer } from './indexer';
+import { StudyStore } from './study';
 import { buildMoveMap, rewriteLinksAfterMove } from './linkmove';
 import { SAMPLE_MAP, SAMPLE_MAP_2, SAMPLE_PAGE } from './sample';
 
@@ -25,6 +26,7 @@ const vaultRoot = path.resolve(argValue('--vault') ?? process.env.MINDMAP_VAULT 
 const port = Number(argValue('--port') ?? process.env.MINDMAP_PORT ?? 4321);
 const vault = new Vault(vaultRoot);
 const indexer = new Indexer(vault);
+const study = new StudyStore(path.join(vault.internalDir, 'study.json'));
 
 async function initVault() {
   const fresh = !existsSync(vaultRoot);
@@ -149,9 +151,25 @@ app.post('/api/rename', async (c) => {
   const oldFiles = await indexer.freshPaths();
   await withWatcherPaused(() => vault.rename(from, to));
   // 이동된 파일을 가리키던 [[링크]] 를 새 경로로 고친다
-  const updated = await rewriteLinksAfterMove(vault, oldFiles, buildMoveMap(oldFiles, from, to));
+  const moved = buildMoveMap(oldFiles, from, to);
+  const updated = await rewriteLinksAfterMove(vault, oldFiles, moved);
+  await study.moveMaps(moved);
   await indexer.rebuild();
   return c.json({ ok: true, updatedLinks: updated.length });
+});
+
+/** 복습 기록: GET 으로 한 맵의 카드별 기록을, POST 로 복습 결과를 보낸다 */
+app.get('/api/study', async (c) => {
+  const rel = c.req.query('path') ?? '';
+  vault.resolve(rel);
+  return c.json(await study.get(rel));
+});
+
+app.post('/api/study', async (c) => {
+  const { path: rel, results } = await c.req.json<{ path: string; results: { id: string; known: boolean }[] }>();
+  vault.resolve(rel);
+  await study.record(rel, results);
+  return c.json({ ok: true });
 });
 
 app.get('/api/files', async (c) => {

@@ -9,6 +9,8 @@ import { HelpDialog } from './components/HelpDialog';
 import { PageModal } from './components/PageModal';
 import { QuickFind } from './components/QuickFind';
 import { BacklinksDialog } from './components/BacklinksDialog';
+import { HideBar } from './components/HideBar';
+import { StudyDialog } from './components/StudyDialog';
 
 function pathFromHash() {
   const h = decodeURI(location.hash.slice(1));
@@ -62,6 +64,7 @@ export function App() {
       <Sidebar />
       <main className="main">
         <Toolbar />
+        <HideBar />
         {hasMap ? (
           <MapCanvas key={mapPath} />
         ) : (
@@ -76,6 +79,7 @@ export function App() {
       <PageModal />
       <QuickFind />
       <BacklinksDialog />
+      <StudyDialog />
       <div className="toasts">
         {toasts.map((t) => (
           <div key={t.id} className={`toast ${t.kind}`}>

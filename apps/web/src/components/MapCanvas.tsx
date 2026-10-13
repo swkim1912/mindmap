@@ -12,7 +12,9 @@ import {
   type MapNode,
 } from '@mindmap/core';
 import { useStore } from '../store';
-import { isOverlayOpen, useAux } from '../workspace';
+import { useAux } from '../workspace';
+import { isEditLocked, isOverlayOpen } from '../overlay';
+import { useStudy } from '../study';
 import { PostIt } from './PostIt';
 import { commands } from '../commands';
 import { flushEdit, registerCommitter } from '../editing';
@@ -62,7 +64,18 @@ export function MapCanvas() {
   const revealIds = useAux((s) => s.revealIds);
   const openNotes = useAux((s) => s.openNotes);
   const backlinks = useAux((s) => s.backlinks);
-  const revealSet = useMemo(() => new Set(revealIds), [revealIds]);
+  const hide = useStudy((s) => s.hide);
+  const revealSet = useMemo(() => {
+    if (!hide) return new Set(revealIds);
+    // 가리기 모드: 접힌 가지도 화면에서는 펼쳐서 연습할 구조를 모두 보여 준다
+    const all = new Set<string>();
+    const walk = (n: MapNode) => {
+      if (n.children.length) all.add(n.id);
+      n.children.forEach(walk);
+    };
+    walk(doc.root);
+    return all;
+  }, [revealIds, hide !== null, doc.root]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const layout = useMemo(
     () => computeLayout(doc.root, kind, (n, d) => sizes.get(n.id) ?? estimateSize(n, d), revealSet),
@@ -217,6 +230,11 @@ export function MapCanvas() {
     e.preventDefault();
     st.select(id, e.shiftKey || e.ctrlKey || e.metaKey ? 'toggle' : 'replace');
     focusSink();
+    const study = useStudy.getState();
+    if (study.hide) {
+      if (study.hide.scope.has(id) && id !== study.hide.scopeId) study.reveal(`n:${id}`);
+      return;
+    }
     const root = st.map!.doc.root;
     if (id === root.id) return;
     const sx = e.clientX;
@@ -294,6 +312,9 @@ export function MapCanvas() {
             descendants={childCount.get(b.id) ?? 0}
             noteOpen={openNotes.includes(b.id)}
             revealed={revealSet.has(b.id)}
+            masked={!!hide && hide.scope.has(b.id) && b.id !== hide.scopeId && !hide.revealed.has(`n:${b.id}`)}
+            clozeRevealed={hide && hide.scope.has(b.id) ? hide.revealed : null}
+            hideActive={!!hide}
             backlinkCount={backlinks?.nodes[b.id]?.length ?? 0}
             drop={drag?.target?.id === b.id ? drag.target.zone : null}
             onPointerDown={onNodePointerDown}
@@ -301,7 +322,15 @@ export function MapCanvas() {
         ))}
         {openNotes.map((id) => {
           const b = layout.boxes.get(id);
-          return b && b.node.note !== null ? <PostIt key={id} box={b} mapPath={map.path} /> : null;
+          return b && b.node.note !== null ? (
+            <PostIt
+              key={id}
+              box={b}
+              mapPath={map.path}
+              masked={!!hide && hide.scope.has(id) && !hide.revealed.has(`m:${id}`)}
+              locked={!!hide}
+            />
+          ) : null;
         })}
         {drag && (
           <div className="drag-ghost" style={{ left: drag.cx + 8, top: drag.cy + 8 }}>
@@ -343,12 +372,25 @@ function handleKey(e: KeyboardEvent, layout: Layout, zoomAt: (f: number) => void
     return;
   }
   const aux = useAux.getState();
-  // 대화상자나 팝업 페이지가 열려 있으면 맵 단축키는 쓰지 않는다
-  if (aux.dialog || aux.page) return;
-  if (st.editing || aux.noteEditing || isTypingTarget(e.target) || !st.map) return;
+  // 대화상자·팝업 페이지·카드 복습 화면이 열려 있으면 맵 단축키는 쓰지 않는다
+  if (isOverlayOpen()) return;
+  if (st.editing || isTypingTarget(e.target) || !st.map) return;
 
   const p = st.primary;
   const handled = () => e.preventDefault();
+
+  const study = useStudy.getState();
+  if (study.hide) {
+    // 가리기 모드: Space/Enter 로 하나씩 드러내고, 편집 키는 모두 막는다
+    if (key === 'F8' || key === 'Escape') return handled(), study.exitHide();
+    if (key === ' ' || key === 'Enter') return handled(), e.shiftKey ? study.revealAll() : study.revealNext(p);
+    const allowed = (key.startsWith('Arrow') && !e.altKey && !mod) || key === 'Home' || key === 'F1' ||
+      (mod && ['0', '=', '+', '-', 'p'].includes(key.toLowerCase()));
+    if (!allowed) {
+      if (['Tab', 'Backspace', 'Delete', 'F2', 'F4'].includes(key)) handled();
+      return;
+    }
+  }
 
   if (mod) {
     const k = key.toLowerCase();
@@ -378,6 +420,8 @@ function handleKey(e: KeyboardEvent, layout: Layout, zoomAt: (f: number) => void
     case 'Enter':
       if (performance.now() - lastImeCommit < 80) return handled();
       return handled(), commands.addSibling(e.shiftKey);
+    case 'F8':
+      return handled(), study.enterHide(p);
     case 'F4':
       handled();
       if (e.shiftKey) aux.setAllNotes(aux.openNotes.length === 0);
@@ -454,6 +498,11 @@ interface NodeViewProps {
   descendants: number;
   noteOpen: boolean;
   revealed: boolean;
+  /** 가리기 모드에서 아직 드러나지 않은 노드 */
+  masked: boolean;
+  /** 가리기 모드에서 빈칸을 가리는 중이면 이미 드러낸 키 집합 */
+  clozeRevealed: ReadonlySet<string> | null;
+  hideActive: boolean;
   backlinkCount: number;
   drop: DropZone | null;
   onPointerDown: (e: React.PointerEvent, id: string) => void;
@@ -468,6 +517,9 @@ const NodeView = memo(function NodeView({
   descendants,
   noteOpen,
   revealed,
+  masked,
+  clozeRevealed,
+  hideActive,
   backlinkCount,
   drop,
   onPointerDown,
@@ -483,13 +535,14 @@ const NodeView = memo(function NodeView({
     selected && 'selected',
     isPrimary && 'primary',
     isEditing && 'editing',
+    masked && 'masked',
     custom && 'custom-color',
     drop && `drop-${drop}`,
   ]
     .filter(Boolean)
     .join(' ');
   const foldSide = box.side === -1 ? 'left' : 'right';
-  const showFold = n.children.length > 0 && !(box.depth === 0 && kind === 'mindmap');
+  const showFold = n.children.length > 0 && !(box.depth === 0 && kind === 'mindmap') && !hideActive;
 
   return (
     <div
@@ -499,16 +552,16 @@ const NodeView = memo(function NodeView({
       onPointerDown={(e) => onPointerDown(e, n.id)}
       onDoubleClick={(e) => {
         e.stopPropagation();
-        useStore.getState().startEdit(n.id);
+        if (!isEditLocked()) useStore.getState().startEdit(n.id);
       }}
     >
       {isPrimary && <NodeEditor node={n} editing={isEditing} />}
       {!isEditing && (
         <div className="node-text">
-          <NodeText text={n.text} />
+          <NodeText text={n.text} mask={clozeRevealed ? { nodeId: n.id, revealed: clozeRevealed } : undefined} />
         </div>
       )}
-      {(tags.length > 0 || n.note !== null || backlinkCount > 0) && !isEditing && (
+      {(tags.length > 0 || n.note !== null || backlinkCount > 0) && !isEditing && !masked && (
         <div className="node-meta">
           {n.note !== null && (
             <button
@@ -624,7 +677,7 @@ function NodeEditor({ node, editing }: { node: MapNode; editing: boolean }) {
   }, [node.id, editing]);
 
   const beginByTyping = () => {
-    if (editing || isOverlayOpen()) return;
+    if (editing || isOverlayOpen() || isEditLocked()) return;
     startedByTyping.current = true;
     useStore.getState().startEdit(node.id);
   };
@@ -639,7 +692,7 @@ function NodeEditor({ node, editing }: { node: MapNode; editing: boolean }) {
       spellCheck={false}
       aria-label="주제 편집"
       onChange={(e) => {
-        if (!editing && isOverlayOpen()) {
+        if (!editing && (isOverlayOpen() || isEditLocked())) {
           e.target.value = '';
           return;
         }
@@ -693,7 +746,7 @@ function NodeEditor({ node, editing }: { node: MapNode; editing: boolean }) {
         e.clipboardData.setData('text/plain', t);
       }}
       onCut={(e) => {
-        if (editing) return;
+        if (editing || isEditLocked()) return;
         const t = commands.copyText();
         if (t === null) return;
         e.preventDefault();
@@ -701,7 +754,10 @@ function NodeEditor({ node, editing }: { node: MapNode; editing: boolean }) {
         commands.remove();
       }}
       onPaste={(e) => {
-        if (editing) return;
+        if (editing || isEditLocked()) {
+          if (!editing) e.preventDefault();
+          return;
+        }
         e.preventDefault();
         commands.paste(e.clipboardData.getData('text/plain'));
       }}

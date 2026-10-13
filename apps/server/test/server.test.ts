@@ -4,6 +4,7 @@ import path from 'node:path';
 import { beforeEach, describe, expect, it } from 'vitest';
 import { Indexer } from '../src/indexer';
 import { buildMoveMap, rewriteLinksAfterMove } from '../src/linkmove';
+import { StudyStore } from '../src/study';
 import { Vault } from '../src/vault';
 
 let root: string;
@@ -129,5 +130,45 @@ describe('link rewriting on rename', () => {
     await vault.rename('과목/운영체제.mm.md', '과목/OS.mm.md');
     await rewriteLinksAfterMove(vault, oldFiles, buildMoveMap(oldFiles, '과목/운영체제.mm.md', '과목/OS.mm.md'));
     expect(await read('과목/자료구조.mm.md')).toContain('[[없는문서]]');
+  });
+});
+
+describe('StudyStore', () => {
+  const file = () => path.join(root, '.mindmap', 'study.json');
+
+  it('records results per map and card, and persists them', async () => {
+    const st = new StudyStore(file());
+    await st.record('과목/운영체제.mm.md', [{ id: 'a', known: true }, { id: 'b', known: false }]);
+    await st.record('과목/운영체제.mm.md', [{ id: 'a', known: true }]);
+    const rec = await new StudyStore(file()).get('과목/운영체제.mm.md'); // 새 인스턴스로 디스크에서 다시 읽기
+    expect(rec.a).toMatchObject({ reviews: 2, correct: 2, streak: 2, lastKnown: true });
+    expect(rec.b).toMatchObject({ reviews: 1, correct: 0, lastKnown: false });
+    expect(await st.get('다른맵.mm.md')).toEqual({});
+  });
+
+  it('rejects malformed results', async () => {
+    const st = new StudyStore(file());
+    expect(() => st.record('x', [{ id: '', known: true }])).toThrow();
+    expect(() => st.record('x', [{ id: 'a', known: 'yes' as unknown as boolean }])).toThrow();
+    expect(() => st.record('x', new Array(501).fill({ id: 'a', known: true }))).toThrow();
+  });
+
+  it('keeps records when a map is renamed', async () => {
+    const st = new StudyStore(file());
+    await st.record('과목/운영체제.mm.md', [{ id: 'a', known: true }]);
+    await st.moveMaps(new Map([['과목/운영체제.mm.md', '과목/OS.mm.md']]));
+    expect(await st.get('과목/운영체제.mm.md')).toEqual({});
+    expect((await st.get('과목/OS.mm.md')).a.reviews).toBe(1);
+  });
+
+  it('survives concurrent writes and a corrupted file', async () => {
+    const st = new StudyStore(file());
+    await Promise.all(Array.from({ length: 20 }, (_, i) => st.record('m', [{ id: `c${i}`, known: i % 2 === 0 }])));
+    expect(Object.keys(await st.get('m'))).toHaveLength(20);
+    await fs.writeFile(file(), '{ 깨진 json', 'utf8');
+    const fresh = new StudyStore(file());
+    expect(await fresh.get('m')).toEqual({});
+    const files = await fs.readdir(path.join(root, '.mindmap'));
+    expect(files.some((f) => f.startsWith('study.json.corrupt-'))).toBe(true);
   });
 });

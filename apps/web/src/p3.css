@@ -1,0 +1,293 @@
+/* ======================= 암기: 가리기 모드 · 카드 복습 ======================= */
+
+button.primary {
+  background: var(--accent-ui);
+  border-color: var(--accent-ui);
+  color: #fff;
+}
+button.primary:hover:not(:disabled) {
+  background: var(--accent-ui);
+  filter: brightness(1.1);
+}
+button.link {
+  border: none;
+  background: transparent;
+  color: var(--accent-ui);
+  padding: 0;
+  text-align: left;
+}
+button.link:hover:not(:disabled) {
+  background: transparent;
+  text-decoration: underline;
+}
+
+/* 가리기 모드 안내 줄 */
+.hide-bar {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 6px 12px;
+  background: var(--active);
+  border-bottom: 1px solid var(--border);
+  flex-wrap: wrap;
+}
+.hide-scope {
+  max-width: 260px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--muted);
+}
+.hide-progress {
+  font-variant-numeric: tabular-nums;
+}
+.hide-bar progress {
+  width: 120px;
+  height: 8px;
+}
+
+/* 가려진 노드: 크기는 그대로 두고 글자만 숨겨서 구조가 유지된다 */
+.node.masked {
+  background: var(--hover);
+  border-color: var(--border);
+  cursor: pointer;
+}
+.node.masked .node-text {
+  visibility: hidden;
+}
+.node.masked::after {
+  content: '?';
+  position: absolute;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  color: var(--muted);
+  font-weight: 700;
+  pointer-events: none;
+}
+.node.masked.depth-0 {
+  background: var(--root-bg);
+}
+.node.masked.depth-2 {
+  background: transparent;
+  border-color: transparent;
+  border-bottom-color: var(--border);
+}
+
+/* 가려진 빈칸 */
+.node .cloze.cloze-hidden,
+.md mark.cloze.cloze-hidden {
+  color: transparent;
+  background: var(--cloze);
+  cursor: pointer;
+  user-select: none;
+}
+.node .cloze.cloze-hidden * {
+  color: transparent;
+}
+
+/* 가려진 포스트잇 */
+.postit-mask {
+  display: block;
+  width: 100%;
+  border: none;
+  border-radius: 0 0 6px 6px;
+  background: transparent;
+  color: inherit;
+  padding: 18px 10px;
+  font-style: italic;
+  opacity: 0.8;
+}
+
+/* 카드 설정 */
+.study-setup fieldset {
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  margin: 10px 0;
+  padding: 6px 12px 10px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.study-setup legend {
+  font-size: 12px;
+  color: var(--muted);
+  padding: 0 4px;
+}
+.study-setup label.disabled {
+  opacity: 0.5;
+}
+.study-setup select {
+  font: inherit;
+  color: var(--text);
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 2px 6px;
+}
+.hint.inline {
+  margin: 0;
+}
+.study-count {
+  margin: 10px 0 4px;
+  font-size: 15px;
+}
+.study-count span {
+  color: var(--muted);
+  font-size: 13px;
+}
+.modal-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  margin-top: 12px;
+}
+
+/* 카드 세션 */
+.study-backdrop {
+  background: rgba(0, 0, 0, 0.55);
+}
+.study-card {
+  background: var(--panel);
+  border-radius: 16px;
+  width: min(680px, calc(100% - 24px));
+  min-height: 380px;
+  max-height: 90vh;
+  overflow: auto;
+  padding: 16px 22px 20px;
+  box-shadow: 0 16px 50px rgba(0, 0, 0, 0.4);
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  outline: none;
+  touch-action: pan-y;
+  user-select: none;
+}
+.study-card.summary {
+  min-height: 0;
+  user-select: text;
+}
+.study-top {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+.study-top progress {
+  flex: 1;
+  height: 8px;
+}
+.study-top button {
+  border: none;
+}
+.study-trail {
+  font-size: 12px;
+  color: var(--muted);
+}
+.card-face {
+  font-size: 22px;
+  line-height: 1.55;
+  padding: 18px 20px;
+  border-radius: 12px;
+  overflow-wrap: anywhere;
+}
+.card-face .line {
+  display: block;
+}
+.card-face.front {
+  background: var(--hover);
+  font-weight: 600;
+}
+.card-face.back {
+  background: var(--active);
+}
+.card-face.placeholder-back {
+  color: var(--muted);
+  font-size: 15px;
+  text-align: center;
+  border: 2px dashed var(--border);
+  padding: 28px 12px;
+}
+.card-face .cloze {
+  background: var(--cloze);
+  color: inherit;
+  border-radius: 4px;
+  padding: 0 4px;
+}
+.card-face code {
+  font-family: 'Cascadia Code', Consolas, monospace;
+  font-size: 0.9em;
+  background: rgba(127, 127, 127, 0.2);
+  padding: 0 4px;
+  border-radius: 4px;
+}
+.card-face .card-sep {
+  margin: 0 6px;
+  color: var(--muted);
+}
+.card-face .wikilink {
+  color: var(--accent-ui);
+  border-bottom: 1px dashed currentColor;
+}
+.card-face .link-go {
+  border: none;
+  background: transparent;
+  padding: 0 0 0 3px;
+  color: inherit;
+}
+.study-meta {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  font-size: 12px;
+}
+.study-meta .kind {
+  background: var(--hover);
+  border-radius: 10px;
+  padding: 1px 8px;
+  color: var(--muted);
+}
+.study-meta .link {
+  margin-left: auto;
+}
+.study-actions {
+  display: flex;
+  gap: 12px;
+  margin-top: auto;
+}
+.study-actions button {
+  flex: 1;
+  padding: 12px;
+  font-size: 16px;
+  border-radius: 10px;
+}
+.study-actions .wrong {
+  border-color: var(--danger);
+  color: var(--danger);
+}
+.study-actions .right {
+  background: #2f9e44;
+  border-color: #2f9e44;
+  color: #fff;
+}
+.study-actions .right:hover:not(:disabled) {
+  background: #2f9e44;
+  filter: brightness(1.1);
+}
+.study-actions kbd {
+  margin-left: 6px;
+  opacity: 0.8;
+}
+.missed-list {
+  list-style: none;
+  padding: 0;
+  margin: 6px 0;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  max-height: 240px;
+  overflow: auto;
+}
+.missed-list li {
+  border-bottom: 1px solid var(--border);
+  padding-bottom: 6px;
+}

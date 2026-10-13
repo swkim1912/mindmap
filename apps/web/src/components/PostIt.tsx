@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { dirOf } from '@mindmap/core';
 import { useAux } from '../workspace';
+import { useStudy } from '../study';
 import { imageFiles, insertImageRefs, uploadImage } from '../upload';
 import { useStore } from '../store';
 import type { Box } from '../layout';
@@ -8,7 +9,16 @@ import { MarkdownView } from './MarkdownView';
 
 export const POSTIT_WIDTH = 270;
 
-export function PostIt({ box, mapPath }: { box: Box; mapPath: string }) {
+interface PostItProps {
+  box: Box;
+  mapPath: string;
+  /** 가리기 모드에서 아직 드러나지 않음 */
+  masked?: boolean;
+  /** 가리기 모드 중에는 편집할 수 없다 */
+  locked?: boolean;
+}
+
+export function PostIt({ box, mapPath, masked = false, locked = false }: PostItProps) {
   const node = box.node;
   const editing = useAux((s) => s.noteEditing === node.id);
   const note = node.note ?? '';
@@ -24,7 +34,7 @@ export function PostIt({ box, mapPath }: { box: Box; mapPath: string }) {
       <div className="postit-head">
         <span className="postit-title">📌 메모</span>
         <span className="postit-tools">
-          {!editing && (
+          {!editing && !locked && (
             <button title="편집 (더블클릭)" onClick={() => useAux.getState().startNoteEdit(node.id)}>
               ✎
             </button>
@@ -34,10 +44,14 @@ export function PostIt({ box, mapPath }: { box: Box; mapPath: string }) {
           </button>
         </span>
       </div>
-      {editing ? (
+      {masked ? (
+        <button className="postit-mask" onClick={() => useStudy.getState().reveal(`m:${node.id}`)}>
+          클릭해서 메모 보기
+        </button>
+      ) : editing ? (
         <NoteEditor id={node.id} initial={note} mapPath={mapPath} />
       ) : (
-        <div className="postit-body" onDoubleClick={() => useAux.getState().startNoteEdit(node.id)}>
+        <div className="postit-body" onDoubleClick={() => !locked && useAux.getState().startNoteEdit(node.id)}>
           {note.trim() ? (
             <MarkdownView md={note} baseDir={dirOf(mapPath)} fromPath={mapPath} />
           ) : (

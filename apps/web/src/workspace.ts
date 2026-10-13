@@ -102,11 +102,6 @@ let refreshTimer: ReturnType<typeof setTimeout> | undefined;
 
 const st = () => useStore.getState();
 
-/** 대화상자·팝업 페이지·포스트잇 편집 중에는 맵의 키 입력 수신기가 입력을 받으면 안 된다 */
-export function isOverlayOpen(): boolean {
-  const a = useAux.getState();
-  return a.dialog !== null || a.page !== null || a.noteEditing !== null;
-}
 
 /** 노드 텍스트에서 파일 이름으로 쓸 만한 문자열을 뽑는다 */
 export function titleFromNodeText(text: string): string {

@@ -41,6 +41,17 @@ export function formatWikiLink(o: { target: string; nodeId?: string | null; labe
   return `[[${o.target}${o.nodeId ? `#^${o.nodeId}` : ''}${o.label ? `|${o.label}` : ''}]]`;
 }
 
+/** 노드 텍스트의 첫 줄. `[[링크]]` 는 표시명으로 바꿔 사람이 읽기 좋게 만든다 */
+export function plainLine(text: string): string {
+  return (text.split('\n')[0] ?? '')
+    .replace(WIKILINK_RE, (_w, inner: string) => {
+      const l = parseWikiLink(inner);
+      return l.label ?? baseName(l.target).replace(/\.mm$/, '');
+    })
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
 /** 링크 안의 대상 부분만 바꿔 쓴 새 `[[...]]` 문자열 */
 export function replaceLinkTarget(link: WikiLink, newTarget: string): string {
   return formatWikiLink({ target: newTarget, nodeId: linkNodeId(link), label: link.label });

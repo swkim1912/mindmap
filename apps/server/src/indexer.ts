@@ -2,15 +2,13 @@ import fs from 'node:fs/promises';
 import path from 'node:path';
 import {
   FileLookup,
-  WIKILINK_RE,
-  baseName,
   displayName,
   extractLinks,
   getTags,
   isMapPath,
   linkNodeId,
   parseMap,
-  parseWikiLink,
+  plainLine,
   type MapNode,
   type WikiLink,
 } from '@mindmap/core';
@@ -58,15 +56,7 @@ export interface BacklinkSource {
 }
 
 /** 노드 텍스트의 첫 줄. `[[링크]]` 는 표시명으로 바꿔 사람이 읽기 좋게 만든다 */
-export function plainTitle(text: string): string {
-  return (text.split('\n')[0] ?? '')
-    .replace(WIKILINK_RE, (_w, inner: string) => {
-      const l = parseWikiLink(inner);
-      return l.label ?? baseName(l.target).replace(/\.mm$/, '');
-    })
-    .replace(/\s+/g, ' ')
-    .trim();
-}
+export const plainTitle = plainLine;
 
 /** Vault 루트의 AGENTS.md 는 앱 설명서이므로 색인하지 않는다 */
 const isIndexable = (rel: string) => rel.endsWith('.md') && !isHiddenRel(rel) && rel !== 'AGENTS.md';

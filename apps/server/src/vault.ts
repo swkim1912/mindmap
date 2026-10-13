@@ -217,7 +217,7 @@ export class Vault {
   }
 }
 
-async function atomicWrite(abs: string, content: string | Buffer) {
+export async function atomicWrite(abs: string, content: string | Buffer) {
   const tmp = path.join(path.dirname(abs), `.${path.basename(abs)}.${randomBytes(4).toString('hex')}.tmp`);
   await fs.writeFile(tmp, content, 'utf8');
   for (let attempt = 0; ; attempt++) {

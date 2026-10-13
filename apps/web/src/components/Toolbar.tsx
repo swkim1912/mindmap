@@ -1,6 +1,7 @@
 import { getLayout, type LayoutKind } from '@mindmap/core';
 import { useStore } from '../store';
 import { useAux } from '../workspace';
+import { useStudy } from '../study';
 import { commands } from '../commands';
 import { canvasControls } from '../controls';
 
@@ -17,6 +18,7 @@ export function Toolbar() {
   const canBack = useAux((s) => s.navStack.length > 0);
   const notesOpen = useAux((s) => s.openNotes.length > 0);
   const fileBacklinks = useAux((s) => s.backlinks?.file.length ?? 0);
+  const hiding = useStudy((s) => s.hide !== null);
   if (!map) return null;
 
   const layout = getLayout(map.doc);
@@ -39,10 +41,10 @@ export function Toolbar() {
         ))}
       </div>
       <div className="tb-group">
-        <button onClick={() => commands.addChild()} title="하위 주제 (Tab)">하위 ＋</button>
-        <button onClick={() => commands.addSibling()} title="동급 주제 (Enter)">동급 ＋</button>
-        <button onClick={() => useStore.getState().undo()} disabled={!canUndo} title="실행 취소 (Ctrl+Z)">↶</button>
-        <button onClick={() => useStore.getState().redo()} disabled={!canRedo} title="다시 실행 (Ctrl+Y)">↷</button>
+        <button onClick={() => commands.addChild()} disabled={hiding} title="하위 주제 (Tab)">하위 ＋</button>
+        <button onClick={() => commands.addSibling()} disabled={hiding} title="동급 주제 (Enter)">동급 ＋</button>
+        <button onClick={() => useStore.getState().undo()} disabled={!canUndo || hiding} title="실행 취소 (Ctrl+Z)">↶</button>
+        <button onClick={() => useStore.getState().redo()} disabled={!canRedo || hiding} title="다시 실행 (Ctrl+Y)">↷</button>
       </div>
       <div className="tb-group">
         <button onClick={() => useAux.getState().toggleNote(useStore.getState().primary!)} title="선택한 노드에 메모 (F4)">
@@ -59,11 +61,23 @@ export function Toolbar() {
           📄 페이지
         </button>
       </div>
+      <div className="tb-group">
+        <button
+          className={hiding ? 'on-soft' : ''}
+          onClick={() => (hiding ? useStudy.getState().exitHide() : useStudy.getState().enterHide())}
+          title="선택한 노드 아래를 가리고 하나씩 떠올려 보기 (F8)"
+        >
+          🙈 가리기
+        </button>
+        <button onClick={() => void useStudy.getState().openSetup()} title="질문 :: 답 / ==빈칸== 을 카드로 복습">
+          🃏 카드
+        </button>
+      </div>
       <div className="tb-group segmented">
-        <button className={layout === 'mindmap' ? 'on' : ''} onClick={() => setLayout('mindmap')} title="중심에서 좌우로">
+        <button className={layout === 'mindmap' ? 'on' : ''} onClick={() => setLayout('mindmap')} disabled={hiding} title="중심에서 좌우로">
           마인드맵
         </button>
-        <button className={layout === 'logic-right' ? 'on' : ''} onClick={() => setLayout('logic-right')} title="오른쪽으로 펼침">
+        <button className={layout === 'logic-right' ? 'on' : ''} onClick={() => setLayout('logic-right')} disabled={hiding} title="오른쪽으로 펼침">
           로직 차트
         </button>
       </div>
