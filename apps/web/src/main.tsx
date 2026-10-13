@@ -5,6 +5,7 @@ import './styles.css';
 import './p2.css';
 import './p3.css';
 import './portable.css';
+import './tree.css';
 import './mobile.css';
 import { App } from './App';
 import { CloudGate } from './cloud/CloudGate';

@@ -14,6 +14,8 @@ import { StudyDialog } from './components/StudyDialog';
 import { MobileBar } from './components/MobileBar';
 import { PortableDialog } from './components/PortableDialog';
 import { HistoryDialog } from './components/HistoryDialog';
+import { TreeMenu, MoveDialog, DeleteDialog } from './components/TreeDialogs';
+import { TrashDialog } from './components/TrashDialog';
 import { useUi } from './ui';
 
 function pathFromHash() {
@@ -88,11 +90,26 @@ export function App() {
       <BacklinksDialog />
       <PortableDialog />
       <HistoryDialog />
+      <TrashDialog />
+      <TreeMenu />
+      <MoveDialog />
+      <DeleteDialog />
       <StudyDialog />
       <div className="toasts">
         {toasts.map((t) => (
           <div key={t.id} className={`toast ${t.kind}`}>
-            {t.message}
+            <span>{t.message}</span>
+            {t.action && (
+              <button
+                className="toast-action"
+                onClick={() => {
+                  t.action!.run();
+                  useStore.setState((s) => ({ toasts: s.toasts.filter((x) => x.id !== t.id) }));
+                }}
+              >
+                {t.action.label}
+              </button>
+            )}
           </div>
         ))}
       </div>

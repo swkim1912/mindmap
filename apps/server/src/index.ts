@@ -10,6 +10,7 @@ import { streamSSE } from 'hono/streaming';
 import { assetsDirFor, baseName, dirOf, newMapSource, relativePath } from '@mindmap/core';
 import { HttpError, MAP_EXT, Vault, hashContent, isHiddenRel, listHistory, readHistory } from './vault';
 import { buildBackup } from './backup';
+import { computeImpact, listTrash, purgeExpiredLocal, purgeTrash, restoreTrash } from './trash';
 import { Indexer } from './indexer';
 import { StudyStore } from './study';
 import { createSyncEngine } from './sync';
@@ -284,12 +285,33 @@ app.get('/api/asset', async (c) => {
   });
 });
 
+/** 삭제 = 휴지통으로. 어떤 묶음으로 들어갔는지(trashId) 알려 주어 바로 되돌릴 수 있게 한다 */
 app.post('/api/trash', async (c) => {
   const { path: rel } = await c.req.json<{ path: string }>();
-  await withWatcherPaused(() => vault.trash(rel));
+  const trashId = await withWatcherPaused(() => vault.trash(rel));
   await indexer.rebuild();
+  return c.json({ ok: true, trashId });
+});
+
+app.get('/api/trash', async (c) => c.json(await listTrash(vault)));
+
+app.post('/api/trash/restore', async (c) => {
+  const { id } = await c.req.json<{ id: string }>();
+  const r = await withWatcherPaused(() => restoreTrash(vault, id));
+  await indexer.rebuild();
+  return c.json(r);
+});
+
+app.post('/api/trash/purge', async (c) => {
+  const { id, all } = await c.req.json<{ id?: string; all?: boolean }>();
+  if (!all && !id) throw new HttpError(400, 'id 또는 all 이 필요합니다');
+  const ids = await purgeTrash(vault, all ? 'all' : [id!]);
+  void sync?.purgeTrash(ids); // 클라우드에서도 지운다 (실패해도 괜찮음)
   return c.json({ ok: true });
 });
+
+/** 삭제 전 영향: 함께 없어지는 파일 수와 끊어질 링크 */
+app.get('/api/impact', async (c) => c.json(await computeImpact(vault, indexer, c.req.query('path') ?? '')));
 
 app.get('/api/events', (c) =>
   streamSSE(c, async (stream) => {
@@ -313,6 +335,13 @@ if (existsSync(dist)) {
 await initVault();
 startWatcher();
 void indexer.start();
+// 보관 기간(30일)이 지난 휴지통을 정리한다
+const purgeOld = () => {
+  void purgeExpiredLocal(vault).catch((e) => console.error('[trash]', e));
+  void sync?.purgeExpired();
+};
+purgeOld();
+setInterval(purgeOld, 6 * 3600_000).unref();
 if (sync && syncRemote) {
   void sync.run().catch(() => {});
   setInterval(() => void sync.run().catch(() => {}), 30_000).unref();

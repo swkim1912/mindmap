@@ -4,6 +4,8 @@ import path from 'node:path';
 import { beforeEach, describe, expect, it } from 'vitest';
 import type { PutRow, Remote, RemoteRow, SyncEngine } from '@mindmap/core';
 import { createSyncEngine, hashBytes } from '../src/sync';
+import { computeImpact, listTrash, purgeExpiredLocal, purgeTrash, restoreTrash } from '../src/trash';
+import { Indexer } from '../src/indexer';
 import { Vault } from '../src/vault';
 
 /** 메모리에 두는 가짜 클라우드. updated_at 은 호출 순서대로 늘어나는 값 */
@@ -66,7 +68,7 @@ describe('SyncEngine', () => {
     await put('과목/맵/assets/a.png', Buffer.from([1, 2, 3, 4]));
     const st = await engine.run();
     expect(st.state).toBe('idle');
-    expect(st.pushed).toBe(2);
+    expect(st.pushed).toBe(3); // 맵, 이미지, 빈 폴더 목록
     expect(remote.rows.get('과목/맵.mm.md')?.content).toBe(MAP);
     const img = remote.rows.get('과목/맵/assets/a.png')!;
     expect(img.content).toBeNull();
@@ -197,5 +199,141 @@ describe('SyncEngine', () => {
     const st = await engine.run();
     expect(st.state).toBe('idle');
     expect(st.pulled).toBe(0);
+  });
+});
+
+describe('휴지통과 폴더 동기화', () => {
+  let root2: string;
+  let vault2: Vault;
+  let engine2: SyncEngine;
+  const file2 = (rel: string) => path.join(root2, ...rel.split('/'));
+  const exists2 = (rel: string) => fs.access(file2(rel)).then(() => true, () => false);
+
+  beforeEach(async () => {
+    root2 = await fs.mkdtemp(path.join(os.tmpdir(), 'mm-sync2-'));
+    vault2 = new Vault(root2);
+    engine2 = createSyncEngine(vault2, remote);
+  });
+
+  it('앱에서 지우면 내용과 묶음 ID 가 함께 올라가고, 다른 기기 휴지통에도 같은 묶음으로 들어간다', async () => {
+    await put('과목/맵.mm.md', MAP);
+    await put('과목/맵/pages/p.md', '# 페이지');
+    await engine.run();
+    await engine2.run();
+    expect(await read('과목/맵.mm.md')).toBe(MAP);
+
+    const id = await vault.trash('과목/맵.mm.md'); // 맵과 딸린 폴더가 한 묶음
+    await engine.run();
+    const row = remote.rows.get('과목/맵.mm.md')!;
+    expect(row.deleted).toBe(true);
+    expect(row.trash_id).toBe(id);
+    expect(row.content).toBe(MAP); // 내용이 남아 있어야 복원할 수 있다
+    expect(remote.rows.get('과목/맵/pages/p.md')?.trash_id).toBe(id);
+
+    await engine2.run();
+    expect(await exists2('과목/맵.mm.md')).toBe(false);
+    const groups = await listTrash(vault2);
+    expect(groups).toHaveLength(1);
+    expect(groups[0]).toMatchObject({ id, path: '과목/맵.mm.md', kind: 'map', maps: 1, pages: 1 });
+  });
+
+  it('이 기기에 원래 없던 파일도 삭제 표시의 내용으로 휴지통에 보관된다', async () => {
+    await put('a.mm.md', MAP);
+    await engine.run();
+    await vault.trash('a.mm.md');
+    await engine.run();
+    await engine2.run(); // 처음 받는 기기
+    expect(await exists2('a.mm.md')).toBe(false);
+    const groups = await listTrash(vault2);
+    expect(groups).toHaveLength(1);
+    const r = await restoreTrash(vault2, groups[0].id);
+    expect(r).toEqual({ path: 'a.mm.md', renamed: false });
+    expect(await fs.readFile(file2('a.mm.md'), 'utf8')).toBe(MAP);
+  });
+
+  it('복원하면 다시 올라가고 삭제 표시가 풀린다', async () => {
+    await put('a.mm.md', MAP);
+    await engine.run();
+    const id = await vault.trash('a.mm.md');
+    await engine.run();
+    await restoreTrash(vault, id);
+    await engine.run();
+    const row = remote.rows.get('a.mm.md')!;
+    expect(row.deleted).toBe(false);
+    expect(row.trash_id).toBeNull();
+    await engine2.run();
+    expect(await fs.readFile(file2('a.mm.md'), 'utf8')).toBe(MAP);
+  });
+
+  it('이름 변경(이동)은 다른 기기 휴지통 목록에 나타나지 않는다', async () => {
+    await put('a.mm.md', MAP);
+    await engine.run();
+    await engine2.run();
+    await vault.rename('a.mm.md', 'b.mm.md');
+    await engine.run();
+    await engine2.run();
+    expect(await exists2('b.mm.md')).toBe(true);
+    expect(await exists2('a.mm.md')).toBe(false);
+    expect(await listTrash(vault2)).toEqual([]);
+  });
+
+  it('빈 폴더가 다른 기기에 만들어지고, 지우면 따라 지워진다', async () => {
+    await fs.mkdir(file('빈 폴더/하위'), { recursive: true });
+    await put('채워진/맵.mm.md', MAP);
+    await engine.run();
+    expect(JSON.parse(remote.rows.get('.mindmap/folders.json')!.content!)).toEqual(['빈 폴더', '빈 폴더/하위']);
+    await engine2.run();
+    expect(await exists2('빈 폴더/하위')).toBe(true);
+
+    await fs.rm(file('빈 폴더'), { recursive: true });
+    await engine.run();
+    await engine2.run();
+    expect(await exists2('빈 폴더')).toBe(false);
+    expect(await exists2('채워진/맵.mm.md')).toBe(true);
+  });
+
+  it('맵에 딸린 빈 폴더는 빈 폴더 목록에 넣지 않는다', async () => {
+    await put('맵.mm.md', MAP);
+    await fs.mkdir(file('맵/assets'), { recursive: true });
+    await engine.run();
+    expect(JSON.parse(remote.rows.get('.mindmap/folders.json')!.content!)).toEqual([]);
+  });
+});
+
+describe('휴지통 관리', () => {
+  it('같은 이름이 이미 있으면 (복원) 을 붙이고, 묶음을 영구 삭제하며, 기한이 지난 것은 정리한다', async () => {
+    await put('맵.mm.md', MAP);
+    await put('맵/assets/a.png', Buffer.from([1]));
+    const id = await vault.trash('맵.mm.md');
+    await put('맵.mm.md', '# 새로 만든 같은 이름 ^root\n'); // 같은 이름이 생김
+    const r = await restoreTrash(vault, id);
+    expect(r).toEqual({ path: '맵 (복원).mm.md', renamed: true });
+    expect(await exists('맵 (복원)/assets/a.png')).toBe(true);
+    expect(await read('맵.mm.md')).toContain('새로 만든');
+
+    const id2 = await vault.trash('맵 (복원).mm.md');
+    expect(await listTrash(vault)).toHaveLength(1);
+    await purgeTrash(vault, [id2]);
+    expect(await listTrash(vault)).toHaveLength(0);
+
+    const old = '2020-01-01T00-00-00-000Z';
+    await vault.trash('맵.mm.md', old);
+    expect(await purgeExpiredLocal(vault)).toBe(1);
+  });
+
+  it('삭제 전 영향: 함께 없어지는 파일 수와 외부에서 오는 링크', async () => {
+    await put('과목/운영체제.mm.md', '# 운영체제 ^root\n- 스케줄링 [[과목/운영체제/pages/스케줄링]] ^s1\n');
+    await put('과목/운영체제/pages/스케줄링.md', '내용');
+    await put('과목/운영체제/assets/a.png', Buffer.from([1]));
+    await put('다른.mm.md', '# 다른 ^root\n- 연결 [[과목/운영체제.mm]] ^x1\n');
+    const idx = new Indexer(vault);
+    await idx.start();
+    const imp = await computeImpact(vault, idx, '과목/운영체제.mm.md');
+    expect(imp).toMatchObject({ kind: 'map', maps: 1, pages: 1, images: 1 });
+    expect(imp.links.count).toBe(1); // 맵 안에서 자기 페이지를 가리키는 링크는 세지 않음
+    expect(imp.links.sources[0].path).toBe('다른.mm.md');
+    const folder = await computeImpact(vault, idx, '과목');
+    expect(folder).toMatchObject({ kind: 'folder', maps: 1, pages: 1, images: 1 });
+    expect(folder.links.count).toBe(1);
   });
 });

@@ -1,3 +1,4 @@
+import { FOLDERS_PATH, isTrashExpired, expiryCutoffId, mergeFolders } from './fileops';
 import { MAP_SUFFIX } from './links';
 import { mergeMaps } from './merge';
 import { parseMap } from './parse';
@@ -20,6 +21,8 @@ export interface RemoteRow {
   hash: string;
   deleted: boolean;
   updated_at: string;
+  /** 삭제된 행이면 같은 삭제 묶음의 ID (휴지통에서 함께 복원) */
+  trash_id?: string | null;
 }
 
 export interface PutRow {
@@ -28,6 +31,7 @@ export interface PutRow {
   blob: string | null;
   hash: string;
   deleted: boolean;
+  trash_id?: string | null;
 }
 
 export interface Remote {
@@ -37,6 +41,10 @@ export interface Remote {
   blobName(hash: string, ext: string): string;
   uploadBlob(name: string, bytes: Uint8Array): Promise<void>;
   downloadBlob(name: string): Promise<Uint8Array>;
+  /** 휴지통 묶음의 내용을 클라우드에서 영구 삭제한다 */
+  purgeTrash?(ids: string[]): Promise<void>;
+  /** 이 ID 보다 오래된 휴지통 묶음의 내용을 비운다 */
+  purgeExpiredTrash?(cutoffId: string): Promise<void>;
 }
 
 export interface SyncState {
@@ -51,8 +59,12 @@ export interface LocalStore {
   read(rel: string): Promise<Uint8Array>;
   /** expectHash: 쓰기 직전 현재 해시여야 하는 값 (null = 없어야 함). 다르면 throw — 그 사이 편집을 덮어쓰지 않기 위해 */
   write(rel: string, bytes: Uint8Array, expectHash: string | null): Promise<void>;
-  /** 삭제 (복구 가능한 곳으로 옮긴다) */
-  remove(rel: string): Promise<void>;
+  /** 삭제 (복구 가능한 휴지통으로 옮긴다). trashId 가 없으면 눈에 띄지 않는 임시 보관으로 옮긴다 */
+  remove(rel: string, trashId?: string): Promise<void>;
+  /** 이 경로의 가장 최근 휴지통 내용 (삭제 사실과 함께 클라우드에 올리기 위해) */
+  readTrashed(rel: string): Promise<{ bytes: Uint8Array; trashId: string } | null>;
+  /** 다른 기기에서 지운 파일의 내용을 이 기기의 휴지통에 보관한다 (이미 있으면 그대로 둔다) */
+  stashTrash(rel: string, bytes: Uint8Array, trashId: string): Promise<void>;
   readBase(rel: string): Promise<Uint8Array | null>;
   writeBase(rel: string, bytes: Uint8Array | null): Promise<void>;
   loadState(): Promise<SyncState | null>;
@@ -74,11 +86,11 @@ export const MAX_BLOB = 10 * 1024 * 1024;
 const enc = new TextEncoder();
 const dec = new TextDecoder();
 
-export const isTextPath = (rel: string) => rel.endsWith('.md') || rel === STUDY_PATH;
+export const isTextPath = (rel: string) => rel.endsWith('.md') || rel === STUDY_PATH || rel === FOLDERS_PATH;
 
 /** 동기화할 수 있는 경로인가 (숨김·상위 경로·이상한 문자는 제외) */
 export function isSyncablePath(rel: string): boolean {
-  if (rel === STUDY_PATH) return true;
+  if (rel === STUDY_PATH || rel === FOLDERS_PATH) return true;
   if (!rel || rel.length > 400 || rel.startsWith('/') || /[\\<>:"|?*\x00-\x1f]/.test(rel)) return false;
   return rel.split('/').every((s) => s !== '' && s !== '..' && !s.startsWith('.'));
 }
@@ -204,6 +216,13 @@ export class SyncEngine {
 
   private async syncPath(rel: string, L: string | null, R: RemoteRow | undefined) {
     const S = this.state.files[rel] ?? null;
+    const special = rel === STUDY_PATH || rel === FOLDERS_PATH;
+    // 특수 파일은 지워지지 않는다 (삭제 표시는 무시)
+    if (special && R?.deleted) R = undefined;
+    // 다른 기기에서 지운 파일의 내용을 이 기기 휴지통에도 보관한다 (이 기기에 원래 없던 파일도)
+    if (R?.deleted && R.trash_id && L === null && !isTrashExpired(R.trash_id) && (R.content !== null || R.blob)) {
+      await this.local.stashTrash(rel, await this.fetchBytes(R), R.trash_id).catch((e) => console.error('[sync] 휴지통 보관 실패:', e));
+    }
     const Rh = R ? (R.deleted ? null : R.hash) : undefined;
     const localChanged = L !== S;
     const remoteChanged = R !== undefined && Rh !== S;
@@ -224,7 +243,7 @@ export class SyncEngine {
 
   private async push(rel: string, hash: string | null) {
     if (hash === null) {
-      await this.remote.put({ path: rel, content: null, blob: null, hash: '', deleted: true });
+      await this.pushDeleted(rel);
       this.markSynced(rel, null);
       await this.local.writeBase(rel, null);
       this.status.pushed++;
@@ -233,17 +252,43 @@ export class SyncEngine {
     const bytes = await this.local.read(rel);
     const real = await this.hash(bytes); // 스캔 뒤에 바뀌었을 수 있으니 다시 계산한다
     if (isTextPath(rel)) {
-      await this.remote.put({ path: rel, content: dec.decode(bytes), blob: null, hash: real, deleted: false });
+      await this.remote.put({ path: rel, content: dec.decode(bytes), blob: null, hash: real, deleted: false, trash_id: null });
     } else {
       if (bytes.length > MAX_BLOB) throw new Error(`파일이 너무 큽니다 (10MB 초과): ${rel}`);
       const dot = rel.lastIndexOf('.');
       const name = this.remote.blobName(real, dot > rel.lastIndexOf('/') ? rel.slice(dot) : '');
       await this.remote.uploadBlob(name, bytes);
-      await this.remote.put({ path: rel, content: null, blob: name, hash: real, deleted: false });
+      await this.remote.put({ path: rel, content: null, blob: name, hash: real, deleted: false, trash_id: null });
     }
     this.markSynced(rel, real);
     if (rel.endsWith(MAP_SUFFIX)) await this.local.writeBase(rel, bytes);
     this.status.pushed++;
+  }
+
+  /** 삭제를 알린다. 앱을 거친 삭제면 휴지통 내용을 함께 올려 다른 기기에서도 복원할 수 있게 한다 */
+  private async pushDeleted(rel: string) {
+    const trashed = await this.local.readTrashed(rel).catch(() => null);
+    if (!trashed || trashed.bytes.length > MAX_BLOB) {
+      return this.remote.put({ path: rel, content: null, blob: null, hash: '', deleted: true, trash_id: null });
+    }
+    const hash = await this.hash(trashed.bytes);
+    if (isTextPath(rel)) {
+      return this.remote.put({ path: rel, content: dec.decode(trashed.bytes), blob: null, hash, deleted: true, trash_id: trashed.trashId });
+    }
+    const dot = rel.lastIndexOf('.');
+    const name = this.remote.blobName(hash, dot > rel.lastIndexOf('/') ? rel.slice(dot) : '');
+    await this.remote.uploadBlob(name, trashed.bytes);
+    return this.remote.put({ path: rel, content: null, blob: name, hash, deleted: true, trash_id: trashed.trashId });
+  }
+
+  /** 휴지통 묶음을 클라우드에서도 영구 삭제한다 (오프라인이면 조용히 건너뜀) */
+  async purgeTrash(ids: string[]): Promise<void> {
+    await this.remote.purgeTrash?.(ids).catch(() => {});
+  }
+
+  /** 보관 기간이 지난 휴지통 내용을 클라우드에서 비운다 */
+  async purgeExpired(): Promise<void> {
+    await this.remote.purgeExpiredTrash?.(expiryCutoffId()).catch(() => {});
   }
 
   private fetchBytes(R: RemoteRow): Promise<Uint8Array> {
@@ -252,7 +297,7 @@ export class SyncEngine {
 
   private async pull(rel: string, R: RemoteRow, L: string | null) {
     if (R.deleted) {
-      if (L !== null) await this.local.remove(rel);
+      if (L !== null) await this.local.remove(rel, R.trash_id ?? undefined);
       this.markSynced(rel, null);
       await this.local.writeBase(rel, null);
       this.status.pulled++;
@@ -273,6 +318,9 @@ export class SyncEngine {
     let sameNodeConflict = false;
     if (rel === STUDY_PATH) {
       merged = enc.encode(mergeStudy(dec.decode(localBytes), dec.decode(remoteBytes)));
+      st.merged++;
+    } else if (rel === FOLDERS_PATH) {
+      merged = enc.encode(mergeFolders(dec.decode(localBytes), dec.decode(remoteBytes)));
       st.merged++;
     } else if (rel.endsWith(MAP_SUFFIX)) {
       const base = await this.local.readBase(rel);

@@ -1,0 +1,219 @@
+/* ---------- 폴더 관리: 행 메뉴, 이름 변경, 이동·삭제·휴지통 ---------- */
+.tree-more {
+  margin-left: auto;
+  border: none;
+  background: transparent;
+  padding: 0 6px;
+  font-size: 16px;
+  line-height: 1;
+  color: var(--muted);
+  border-radius: 4px;
+}
+.tree-more:hover {
+  background: var(--border);
+  color: var(--text);
+}
+.tree-row {
+  flex-wrap: nowrap;
+}
+.tree-name {
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.tree-row.drop-on {
+  outline: 2px dashed var(--accent-ui);
+  outline-offset: -2px;
+  background: var(--active);
+}
+.tree.drop-root {
+  outline: 2px dashed var(--accent-ui);
+  outline-offset: -4px;
+}
+.tree-rename {
+  flex: 1;
+  min-width: 0;
+  font: inherit;
+  font-size: 16px;
+  padding: 2px 6px;
+  color: var(--text);
+  background: var(--bg);
+  border: 1px solid var(--accent-ui);
+  border-radius: 4px;
+}
+.sidebar-foot {
+  border-top: 1px solid var(--border);
+  padding: 8px 12px;
+  padding-bottom: calc(8px + env(safe-area-inset-bottom));
+}
+.trash-btn {
+  width: 100%;
+  text-align: left;
+  border: none;
+  background: transparent;
+  color: var(--muted);
+}
+.trash-btn:hover {
+  color: var(--text);
+}
+
+.menu-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 80;
+}
+.tree-menu {
+  position: fixed;
+  min-width: 170px;
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  box-shadow: 0 8px 28px rgba(0, 0, 0, 0.25);
+  padding: 4px;
+  display: flex;
+  flex-direction: column;
+}
+.tree-menu-title {
+  padding: 6px 10px;
+  font-size: 12px;
+  color: var(--muted);
+  max-width: 260px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.tree-menu button {
+  text-align: left;
+  border: none;
+  background: transparent;
+  padding: 8px 10px;
+  border-radius: 6px;
+}
+.tree-menu button:hover {
+  background: var(--hover);
+}
+button.danger,
+.tree-menu button.danger {
+  color: var(--danger);
+}
+.modal-actions button.danger {
+  border-color: var(--danger);
+}
+
+.folder-pick,
+.trash-list {
+  list-style: none;
+  margin: 8px 0;
+  padding: 0;
+  max-height: 48vh;
+  overflow: auto;
+}
+.folder-pick button {
+  width: 100%;
+  text-align: left;
+  border: none;
+  background: transparent;
+  padding-top: 8px;
+  padding-bottom: 8px;
+}
+.folder-pick button.on {
+  background: var(--active);
+  outline: 1px solid var(--accent-ui);
+}
+.folder-pick small {
+  color: var(--muted);
+}
+.delete-links {
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 2px 10px;
+  font-size: 13px;
+}
+.delete-links ul {
+  margin: 0 0 8px;
+  padding-left: 18px;
+}
+.delete-links small {
+  color: var(--muted);
+}
+.linklike {
+  border: none;
+  background: transparent;
+  color: var(--accent-ui);
+  padding: 0;
+  text-decoration: underline;
+}
+.trash-list li {
+  display: flex;
+  gap: 10px;
+  justify-content: space-between;
+  align-items: center;
+  padding: 8px 0;
+  border-bottom: 1px solid var(--border);
+}
+.trash-main {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+.trash-path,
+.trash-meta {
+  font-size: 11px;
+  color: var(--muted);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.trash-actions {
+  display: flex;
+  gap: 6px;
+  flex-shrink: 0;
+}
+.toast {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+.toast-action {
+  pointer-events: auto;
+  background: transparent;
+  color: inherit;
+  border: 1px solid currentColor;
+  padding: 2px 10px;
+  font-weight: 600;
+}
+
+/* 좁은 화면: 메뉴는 아래에서 올라오는 시트로 */
+@media (max-width: 760px), (pointer: coarse) and (max-width: 1100px) {
+  .menu-backdrop {
+    background: rgba(0, 0, 0, 0.35);
+  }
+  .tree-menu {
+    left: 0 !important;
+    right: 0;
+    top: auto !important;
+    bottom: 0;
+    border-radius: 14px 14px 0 0;
+    padding: 6px 8px calc(10px + env(safe-area-inset-bottom));
+    box-shadow: 0 -8px 28px rgba(0, 0, 0, 0.3);
+  }
+  .tree-menu-title {
+    max-width: none;
+    font-size: 13px;
+  }
+  .tree-menu button {
+    padding: 14px 12px;
+    font-size: 16px;
+  }
+  .tree-more {
+    font-size: 22px;
+    padding: 6px 14px;
+    min-height: 40px;
+  }
+  .trash-list li {
+    flex-direction: column;
+    align-items: stretch;
+  }
+}

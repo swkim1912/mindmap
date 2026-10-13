@@ -2,6 +2,7 @@ import { createHash, randomBytes } from 'node:crypto';
 import { existsSync } from 'node:fs';
 import fs from 'node:fs/promises';
 import path from 'node:path';
+import { newTrashId } from '@mindmap/core';
 
 export const MAP_EXT = '.mm.md';
 
@@ -181,13 +182,32 @@ export class Vault {
     }
   }
 
-  /** 삭제 대신 .mindmap/trash 로 옮긴다 */
-  async trash(rel: string): Promise<void> {
+  /** Vault 안의 모든 일반 파일(숨김 제외)의 상대 경로 */
+  async listFiles(): Promise<string[]> {
+    const out: string[] = [];
+    const walk = async (abs: string) => {
+      for (const e of await fs.readdir(abs, { withFileTypes: true })) {
+        if (e.name.startsWith('.')) continue;
+        const p = path.join(abs, e.name);
+        if (e.isDirectory()) await walk(p);
+        else if (e.isFile()) out.push(this.toRel(p));
+      }
+    };
+    await walk(this.root);
+    return out.sort((a, b) => a.localeCompare(b, 'ko', { numeric: true }));
+  }
+
+  get trashDir() {
+    return path.join(this.internalDir, 'trash');
+  }
+
+  /** 삭제 대신 .mindmap/trash/<묶음 ID> 로 옮긴다. 묶음 ID 를 돌려준다. */
+  async trash(rel: string, stampOverride?: string): Promise<string> {
     const abs = this.resolve(rel);
     if (abs === this.root) throw new HttpError(400, 'Vault 자체는 삭제할 수 없습니다');
     if (!existsSync(abs)) throw new HttpError(404, '대상이 없습니다');
-    const stamp = new Date().toISOString().replace(/[:.]/g, '-');
-    const dest = path.join(this.internalDir, 'trash', stamp, this.toRel(abs));
+    const stamp = stampOverride ?? newTrashId();
+    const dest = path.join(this.trashDir, stamp, this.toRel(abs));
     await fs.mkdir(path.dirname(dest), { recursive: true });
     await renameWithRetry(abs, dest);
     if (abs.endsWith(MAP_EXT)) {
@@ -201,6 +221,7 @@ export class Vault {
         }
       }
     }
+    return stamp;
   }
 
   /** 덮어쓰기 전 내용을 .mindmap/history 에 보관한다 (파일당 5분에 한 번, 최근 50개) */
@@ -238,7 +259,7 @@ export async function atomicWrite(abs: string, content: string | Buffer) {
 }
 
 /** Windows 에서 백신/동기화 프로그램이 파일을 잠깐 잡고 있으면 EPERM/EBUSY 가 날 수 있어 몇 번 재시도한다 */
-async function renameWithRetry(from: string, to: string) {
+export async function renameWithRetry(from: string, to: string) {
   for (let attempt = 0; ; attempt++) {
     try {
       await fs.rename(from, to);

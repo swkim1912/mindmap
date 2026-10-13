@@ -34,6 +34,8 @@ interface Toast {
   id: number;
   message: string;
   kind: 'info' | 'error';
+  /** 토스트에 붙는 버튼 (예: 되돌리기) */
+  action?: { label: string; run: () => void };
 }
 
 interface State {
@@ -63,7 +65,7 @@ interface State {
   save(): Promise<void>;
   onVaultEvent(e: VaultEvent): void;
   recheckFile(): Promise<void>;
-  toast(message: string, kind?: Toast['kind']): void;
+  toast(message: string, kind?: Toast['kind'], action?: Toast['action']): void;
   setHelp(open: boolean): void;
 }
 
@@ -326,10 +328,10 @@ export const useStore = create<State>()((set, get) => {
       }
     },
 
-    toast(message, kind = 'info') {
+    toast(message, kind = 'info', action) {
       const id = ++toastSeq;
-      set({ toasts: [...get().toasts, { id, message, kind }] });
-      setTimeout(() => set({ toasts: get().toasts.filter((t) => t.id !== id) }), kind === 'error' ? 7000 : 3500);
+      set({ toasts: [...get().toasts, { id, message, kind, action }] });
+      setTimeout(() => set({ toasts: get().toasts.filter((t) => t.id !== id) }), action ? 10_000 : kind === 'error' ? 7000 : 3500);
     },
 
     setHelp(open) {

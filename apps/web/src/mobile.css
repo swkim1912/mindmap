@@ -123,9 +123,6 @@
   .tree-row {
     padding: 10px 8px; /* 손가락으로 누르기 쉽게 */
   }
-  .tree-tools {
-    display: none;
-  }
 
   .toolbar {
     flex-wrap: nowrap;

@@ -1,63 +1,81 @@
-import { useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { useStore } from '../store';
-import { api, getBackend } from '../api';
-import { SignOutButton, SyncBadge } from './SyncBadge';
-import type { TreeEntry } from '../types';
+import { useAux } from '../workspace';
 import { useUi } from '../ui';
+import { SignOutButton, SyncBadge } from './SyncBadge';
+import { moveEntry, newFolder, newMap, parentDir, refreshTrashCount, renameEntry } from '../treeActions';
+import type { TreeEntry } from '../types';
 
-const MAP_EXT = '.mm.md';
+/** 지금 끌고 있는 항목 (드래그 중에만) */
+let dragging: TreeEntry | null = null;
+const LONG_PRESS_MS = 500;
+/** 터치 화면에서는 길게 누르기와 겹치므로 끌어서 옮기기는 마우스에서만 */
+const FINE_POINTER = typeof matchMedia !== 'undefined' && matchMedia('(pointer: fine)').matches;
 
-function parentDir(path: string) {
-  const i = path.lastIndexOf('/');
-  return i < 0 ? '' : path.slice(0, i);
-}
-
-async function run(fn: () => Promise<unknown>) {
-  try {
-    await fn();
-    await useStore.getState().loadTree();
-  } catch (e) {
-    useStore.getState().toast((e as Error).message, 'error');
-  }
+function canDrop(dest: string): boolean {
+  const d = dragging;
+  if (!d || parentDir(d.path) === dest) return false;
+  return !(d.kind === 'dir' && (dest === d.path || dest.startsWith(d.path + '/')));
 }
 
 export function Sidebar() {
   const tree = useStore((s) => s.tree);
+  const trashCount = useUi((s) => s.trashCount);
   const [folder, setFolder] = useState('');
-  const canManage = getBackend().canManage;
+  const [rootDrop, setRootDrop] = useState(false);
 
-  const newMap = () => {
-    const name = prompt(`새 맵 이름${folder ? ` (폴더: ${folder})` : ''}`);
-    if (!name?.trim()) return;
-    void run(async () => {
-      const { path } = await api.createMap(folder, name);
-      await useStore.getState().openMap(path);
-    });
-  };
-  const newFolder = () => {
-    const name = prompt(`새 폴더 이름${folder ? ` (상위: ${folder})` : ''}`);
-    if (!name?.trim()) return;
-    void run(() => api.createFolder([folder, name.trim()].filter(Boolean).join('/')));
-  };
+  // 휴지통 개수 표시: 처음과 목록이 바뀐 뒤에 갱신
+  useEffect(() => {
+    const t = setTimeout(() => void refreshTrashCount(), 400);
+    return () => clearTimeout(t);
+  }, [tree]);
 
   return (
     <aside className="sidebar">
       <div className="sidebar-head">
         <span className="brand">마인드맵</span>
         <div className="sidebar-actions">
-          <button onClick={newMap} title="선택한 폴더에 새 맵">＋ 맵</button>
-          {canManage && <button onClick={newFolder} title="선택한 폴더에 새 폴더">＋ 폴더</button>}
+          <button onClick={() => newMap(folder)} title="선택한 폴더에 새 맵">
+            ＋ 맵
+          </button>
+          <button onClick={() => newFolder(folder)} title="선택한 폴더에 새 폴더">
+            ＋ 폴더
+          </button>
         </div>
         <div className="sidebar-sync">
           <SyncBadge />
           <SignOutButton />
         </div>
       </div>
-      <div className="tree" onClick={() => setFolder('')}>
+      <div
+        className={`tree ${rootDrop ? 'drop-root' : ''}`}
+        onClick={() => setFolder('')}
+        onContextMenu={(e) => {
+          e.preventDefault();
+          useUi.getState().openMenu({ entry: null, x: e.clientX, y: e.clientY });
+        }}
+        onDragOver={(e) => {
+          if (canDrop('')) {
+            e.preventDefault();
+            setRootDrop(true);
+          }
+        }}
+        onDragLeave={() => setRootDrop(false)}
+        onDrop={(e) => {
+          e.preventDefault();
+          setRootDrop(false);
+          if (dragging && canDrop('')) void moveEntry(dragging, '');
+        }}
+      >
         {tree.length === 0 && <p className="empty">맵이 없습니다. ＋ 맵으로 만들어 보세요.</p>}
         {tree.map((e) => (
           <TreeItem key={e.path} entry={e} depth={0} folder={folder} setFolder={setFolder} />
         ))}
+      </div>
+      <div className="sidebar-foot">
+        <button className="trash-btn" onClick={() => useAux.getState().openDialog('trash')} title="삭제한 맵과 폴더를 복원">
+          🗑 휴지통{trashCount > 0 ? ` (${trashCount})` : ''}
+        </button>
       </div>
     </aside>
   );
@@ -72,62 +90,137 @@ interface TreeItemProps {
 
 function TreeItem({ entry, depth, folder, setFolder }: TreeItemProps) {
   const [open, setOpen] = useState(true);
+  const [dropOn, setDropOn] = useState(false);
   const current = useStore((s) => s.map?.path);
+  const renaming = useUi((s) => s.renaming === entry.path);
   const isDir = entry.kind === 'dir';
   const active = isDir ? folder === entry.path : current === entry.path;
-  const containsCurrent = !!current && (current === entry.path || (isDir && current.startsWith(entry.path + '/')));
 
-  const rename = (e: React.MouseEvent) => {
-    e.stopPropagation();
-    const name = prompt('새 이름', entry.name);
-    if (!name?.trim() || name === entry.name) return;
-    const to = [parentDir(entry.path), name.trim() + (isDir ? '' : MAP_EXT)].filter(Boolean).join('/');
-    void run(async () => {
-      await useStore.getState().save();
-      await api.rename(entry.path, to);
-      if (containsCurrent) await useStore.getState().openMap(to + current!.slice(entry.path.length));
-    });
+  // 길게 누르기(터치) → 메뉴. 메뉴가 열린 직후의 클릭은 무시한다.
+  const press = useRef<{ timer: ReturnType<typeof setTimeout>; x: number; y: number } | null>(null);
+  const swallowClick = useRef(false);
+  const cancelPress = () => {
+    if (press.current) clearTimeout(press.current.timer);
+    press.current = null;
   };
 
-  const remove = (e: React.MouseEvent) => {
-    e.stopPropagation();
-    const what = isDir ? `"${entry.name}" 폴더와 그 안의 모든 맵` : `"${entry.name}" 맵`;
-    if (!confirm(`${what}을 휴지통(.mindmap/trash)으로 옮길까요?`)) return;
-    void run(async () => {
-      if (containsCurrent) await useStore.getState().openMap(null);
-      await api.trash(entry.path);
-    });
+  const openMenu = (x: number, y: number) => {
+    swallowClick.current = true;
+    setTimeout(() => (swallowClick.current = false), 600);
+    useUi.getState().openMenu({ entry, x, y });
+  };
+
+  const activate = () => {
+    if (isDir) {
+      setOpen((o) => (folder === entry.path ? !o : true));
+      setFolder(entry.path);
+    } else {
+      setFolder(parentDir(entry.path));
+      void useStore.getState().openMap(entry.path);
+      useUi.getState().setDrawer(false);
+    }
   };
 
   return (
     <div>
       <div
-        className={`tree-row ${active ? 'active' : ''}`}
+        className={`tree-row ${active ? 'active' : ''} ${dropOn ? 'drop-on' : ''}`}
         style={{ paddingLeft: 8 + depth * 14 }}
-        onClick={(e) => {
-          e.stopPropagation();
-          if (isDir) {
-            setOpen((o) => (folder === entry.path ? !o : true));
-            setFolder(entry.path);
-          } else {
-            setFolder(parentDir(entry.path));
-            void useStore.getState().openMap(entry.path);
-            useUi.getState().setDrawer(false);
+        draggable={!renaming && FINE_POINTER}
+        onDragStart={(e) => {
+          dragging = entry;
+          e.dataTransfer.effectAllowed = 'move';
+          e.dataTransfer.setData('text/plain', entry.path);
+        }}
+        onDragEnd={() => {
+          dragging = null;
+          setDropOn(false);
+        }}
+        onDragOver={(e) => {
+          if (isDir && canDrop(entry.path)) {
+            e.preventDefault();
+            e.stopPropagation();
+            setDropOn(true);
           }
         }}
+        onDragLeave={() => setDropOn(false)}
+        onDrop={(e) => {
+          setDropOn(false);
+          if (isDir && dragging && canDrop(entry.path)) {
+            e.preventDefault();
+            e.stopPropagation();
+            void moveEntry(dragging, entry.path);
+          }
+        }}
+        onClick={(e) => {
+          e.stopPropagation();
+          if (swallowClick.current || renaming) return;
+          activate();
+        }}
+        onContextMenu={(e) => {
+          e.preventDefault();
+          e.stopPropagation();
+          openMenu(e.clientX, e.clientY);
+        }}
+        onPointerDown={(e) => {
+          if (e.pointerType !== 'touch') return;
+          const { clientX: x, clientY: y } = e;
+          cancelPress();
+          press.current = { x, y, timer: setTimeout(() => (cancelPress(), openMenu(x, y)), LONG_PRESS_MS) };
+        }}
+        onPointerMove={(e) => {
+          if (press.current && Math.hypot(e.clientX - press.current.x, e.clientY - press.current.y) > 10) cancelPress();
+        }}
+        onPointerUp={cancelPress}
+        onPointerCancel={cancelPress}
       >
         <span className="tree-icon">{isDir ? (open ? '▾' : '▸') : '◉'}</span>
-        <span className="tree-name">{entry.name}</span>
-        {getBackend().canManage && (
-          <span className="tree-tools">
-            <button onClick={rename} title="이름 바꾸기">✎</button>
-            <button onClick={remove} title="휴지통으로">🗑</button>
-          </span>
+        {renaming ? <RenameInput entry={entry} /> : <span className="tree-name">{entry.name}</span>}
+        {!renaming && (
+          <button
+            className="tree-more"
+            title="이름 바꾸기 · 이동 · 삭제"
+            aria-label={`${entry.name} 메뉴`}
+            onClick={(e) => {
+              e.stopPropagation();
+              const r = e.currentTarget.getBoundingClientRect();
+              openMenu(r.left, r.bottom);
+            }}
+          >
+            ⋯
+          </button>
         )}
       </div>
       {isDir &&
         open &&
         entry.children?.map((c) => <TreeItem key={c.path} entry={c} depth={depth + 1} folder={folder} setFolder={setFolder} />)}
     </div>
+  );
+}
+
+/** 그 자리에서 이름을 고친다. Enter/바깥 클릭 = 적용, Esc = 취소 */
+function RenameInput({ entry }: { entry: TreeEntry }) {
+  const done = useRef(false);
+  const finish = (value: string | null) => {
+    if (done.current) return;
+    done.current = true;
+    useUi.getState().setRenaming(null);
+    if (value !== null) void renameEntry(entry, value);
+  };
+  return (
+    <input
+      className="tree-rename"
+      defaultValue={entry.name}
+      autoFocus
+      onFocus={(e) => e.currentTarget.select()}
+      onClick={(e) => e.stopPropagation()}
+      onPointerDown={(e) => e.stopPropagation()}
+      onKeyDown={(e) => {
+        e.stopPropagation();
+        if (e.key === 'Enter') finish(e.currentTarget.value);
+        else if (e.key === 'Escape') finish(null);
+      }}
+      onBlur={(e) => finish(e.currentTarget.value)}
+    />
   );
 }

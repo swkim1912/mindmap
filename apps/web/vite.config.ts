@@ -7,6 +7,6 @@ export default defineConfig({
   build: { chunkSizeWarningLimit: 1500 },
   server: {
     port: 5173,
-    proxy: { '/api': 'http://127.0.0.1:4321' },
+    proxy: { '/api': `http://127.0.0.1:${process.env.MINDMAP_API_PORT ?? 4321}` },
   },
 });

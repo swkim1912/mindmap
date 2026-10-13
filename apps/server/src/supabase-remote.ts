@@ -1,5 +1,5 @@
 import { createClient, type SupabaseClient } from '@supabase/supabase-js';
-import type { PutRow, Remote, RemoteRow } from '@mindmap/core';
+import { purgeTrashRows, type PutRow, type Remote, type RemoteRow } from '@mindmap/core';
 
 const BUCKET = 'vault-assets';
 const PAGE = 1000;
@@ -48,7 +48,7 @@ export class SupabaseRemote implements Remote {
     const out: RemoteRow[] = [];
     let from = 0;
     for (;;) {
-      let q = this.client.from('vault_files').select('path,content,blob,hash,deleted,updated_at').order('updated_at').order('path');
+      let q = this.client.from('vault_files').select('path,content,blob,hash,deleted,updated_at,trash_id').order('updated_at').order('path');
       if (cursor) q = q.gt('updated_at', cursor);
       const { data, error } = await q.range(from, from + PAGE - 1);
       if (error) throw new Error(`목록을 받지 못했습니다: ${error.message}`);
@@ -83,6 +83,16 @@ export class SupabaseRemote implements Remote {
     const { data, error } = await this.client.storage.from(BUCKET).download(name);
     if (error || !data) throw new Error(`이미지 다운로드 실패: ${error?.message ?? name}`);
     return new Uint8Array(await data.arrayBuffer());
+  }
+
+  async purgeTrash(ids: string[]): Promise<void> {
+    await this.ownerId();
+    if (ids.length) await purgeTrashRows(this.client, BUCKET, (q) => q.in('trash_id', ids));
+  }
+
+  async purgeExpiredTrash(cutoffId: string): Promise<void> {
+    await this.ownerId();
+    await purgeTrashRows(this.client, BUCKET, (q) => q.lt('trash_id', cutoffId));
   }
 
   /** 다른 기기(모바일)에서 바뀌면 callback 을 부른다. 해제 함수를 돌려준다. */

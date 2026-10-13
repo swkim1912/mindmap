@@ -10,3 +10,5 @@ export * from './cards';
 export * from './sync';
 export * from './vaultindex';
 export * from './convert';
+export * from './fileops';
+export * from './trashpurge';

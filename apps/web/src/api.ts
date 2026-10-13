@@ -1,4 +1,4 @@
-import type { StudyRecord } from '@mindmap/core';
+import type { StudyRecord, TrashGroup } from '@mindmap/core';
 import type { Backlinks, SearchHit, TreeEntry } from './types';
 
 export class ApiError extends Error {
@@ -12,6 +12,17 @@ export class ApiError extends Error {
 }
 
 export type VaultEvent = { type: 'file'; path: string; hash: string | null } | { type: 'tree' };
+
+/** 삭제하기 전에 보여 주는 영향 범위 */
+export interface Impact {
+  path: string;
+  kind: 'map' | 'folder' | 'file';
+  maps: number;
+  pages: number;
+  images: number;
+  others: number;
+  links: { count: number; sources: { path: string; title: string }[] };
+}
 
 export interface HistoryEntry {
   name: string;
@@ -35,7 +46,12 @@ export interface Api {
   createMap(dir: string, name: string): Promise<{ path: string }>;
   createFolder(path: string): Promise<unknown>;
   rename(from: string, to: string): Promise<unknown>;
-  trash(path: string): Promise<unknown>;
+  /** 휴지통으로 옮긴다. trashId 로 바로 되돌릴 수 있다 (빈 폴더를 지웠으면 빈 문자열) */
+  trash(path: string): Promise<{ trashId: string }>;
+  impact(path: string): Promise<Impact>;
+  trashList(): Promise<TrashGroup[]>;
+  trashRestore(id: string): Promise<{ path: string; renamed: boolean }>;
+  trashPurge(target: { id: string } | { all: true }): Promise<unknown>;
   files(): Promise<string[]>;
   study(path: string): Promise<Record<string, StudyRecord>>;
   recordStudy(path: string, results: { id: string; known: boolean }[]): Promise<unknown>;
@@ -82,6 +98,10 @@ const localApi: Api = {
   createFolder: (path) => req('POST', '/api/folders', { path }),
   rename: (from, to) => req('POST', '/api/rename', { from, to }),
   trash: (path) => req('POST', '/api/trash', { path }),
+  impact: (path) => req('GET', `/api/impact?path=${encodeURIComponent(path)}`),
+  trashList: () => req('GET', '/api/trash'),
+  trashRestore: (id) => req('POST', '/api/trash/restore', { id }),
+  trashPurge: (target) => req('POST', '/api/trash/purge', target),
   files: () => req('GET', '/api/files'),
   study: (path) => req('GET', `/api/study?path=${encodeURIComponent(path)}`),
   recordStudy: (path, results) => req('POST', '/api/study', { path, results }),
