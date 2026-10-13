@@ -41,6 +41,9 @@ export function Sidebar() {
           <button onClick={() => newFolder(folder)} title="선택한 폴더에 새 폴더">
             ＋ 폴더
           </button>
+          <button onClick={() => useAux.getState().openDialog('portable')} title="가져오기 · AI로 맵 만들기 · 내보내기">
+            ⇅
+          </button>
         </div>
         <div className="sidebar-sync">
           <SyncBadge />

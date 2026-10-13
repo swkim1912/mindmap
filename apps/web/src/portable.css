@@ -89,3 +89,21 @@
     grid-template-columns: 1fr;
   }
 }
+
+.paste-area {
+  width: 100%;
+  margin-top: 8px;
+  font: inherit;
+  font-size: 13px;
+  font-family: ui-monospace, Consolas, monospace;
+  color: var(--text);
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 8px;
+  resize: vertical;
+}
+.modal.portable {
+  max-height: 90vh;
+  overflow: auto;
+}

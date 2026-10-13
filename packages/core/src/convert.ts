@@ -4,6 +4,7 @@
  * 압축(.xmind 는 zip)과 파일 입출력은 바깥(웹/서버)에서 한다.
  */
 import { newId, randomId } from './id';
+import { parseMap } from './parse';
 import type { LayoutKind, MapDoc, MapNode } from './model';
 import { getTags } from './model';
 import type { Card } from './cards';
@@ -259,4 +260,37 @@ export function toAnkiCsv(cards: Card[]): string {
     return [cell(ctx + html(c.front)), cell(html(c.back)), cell(tags)].join('\t');
   });
   return `${head}\n${rows.join('\n')}\n`;
+}
+
+// ---------- Markdown 자동 판별 가져오기 ----------
+/**
+ * 이 앱의 맵 형식(.mm.md)으로 쓴 글인가? AI 가 만든 마크다운은 확장자가 .md 여도 맵 형식인 경우가 많다.
+ * 루트의 `^root`, 포스트잇(`> 📌`), 노드 끝의 `^id`·`{속성}` 중 하나라도 있으면 맵 형식으로 본다.
+ */
+export function looksLikeMapFormat(text: string): boolean {
+  const t = text.replace(/^\uFEFF/, '');
+  if (/^\s*#\s.*\s\^[A-Za-z0-9_-]+\s*$/m.test(t)) return true;
+  if (/^\s*>\s*📌/m.test(t)) return true;
+  if (/^\s*(?:[-*+]|\d+[.)])\s.*(?:\s\^[A-Za-z0-9_-]{2,}|\{[^{}]*\})\s*$/m.test(t)) return true;
+  return /^---\r?\n[\s\S]{0,400}?\b(?:layout|id):/.test(t);
+}
+
+export interface ImportedMarkdown {
+  doc: MapDoc;
+  /** 'map' = 이 앱의 맵 형식으로 읽음, 'outline' = 일반 제목·목록으로 읽음 */
+  mode: 'map' | 'outline';
+  /** 맵 형식으로 읽다가 해석하지 못한 줄 수 */
+  warnings: number;
+}
+
+/** 마크다운 글을 새 맵으로 바꾼다 (맵 형식이면 태그·메모·카드 문법까지 그대로, 아니면 제목·목록 구조만) */
+export function importMarkdown(text: string, titleHint = '가져온 맵', forceMap = false): ImportedMarkdown {
+  if (forceMap || looksLikeMapFormat(text)) {
+    const { doc, warnings } = parseMap(text);
+    const title = String(doc.meta.title ?? '').trim() || firstLine(doc.root.text) || titleHint;
+    // 새 맵으로 만들므로 맵 ID 는 새로 정한다 (노드 ID 는 유지)
+    doc.meta = { ...doc.meta, id: `map_${randomId(6)}`, title };
+    return { doc, mode: 'map', warnings: warnings.length };
+  }
+  return { doc: fromMarkdownOutline(text, titleHint), mode: 'outline', warnings: 0 };
 }

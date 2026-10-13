@@ -5,7 +5,7 @@ import { beforeEach, describe, expect, it } from 'vitest';
 import { parseMap, toOpml, toXMindFiles, type PutRow, type Remote, type RemoteRow } from '@mindmap/core';
 import { api, setBackend } from '../src/api';
 import { buildCloudBackend } from '../src/cloud/cloudBackend';
-import { parseImport, safeName, saveImported } from '../src/portable';
+import { parseImport, parseImportDetailed, parseImportText, safeName, saveImported, stripOuterFence } from '../src/portable';
 import { mapToSvg } from '../src/svgExport';
 
 class NullRemote implements Remote {
@@ -94,5 +94,40 @@ describe('가져오기', () => {
   it('safeName 은 금지 문자를 걷어 낸다', () => {
     expect(safeName('a/b:c*?"<>|d')).toBe('a b c d');
     expect(safeName('...')).toBe('맵');
+  });
+
+  it('확장자가 .md 여도 AI 가 쓴 맵 형식이면 태그·메모·카드가 살아난다', async () => {
+    const ai = '---\ntitle: AI 맵\n---\n\n# AI 맵\n\n- 가 {tags=시험}\n  > 📌 메모\n  - 용어 :: 설명\n';
+    const [r] = await parseImportDetailed(file('ai.md', ai));
+    expect(r.mode).toBe('map');
+    expect(r.doc.root.children[0].attrs.tags).toBe('시험');
+    expect(r.doc.root.children[0].note).toContain('메모');
+    const path = await saveImported('', r.doc);
+    const saved = parseMap((await api.read(path)).content);
+    expect(saved.warnings).toEqual([]);
+    expect(saved.doc.root.children[0].children[0].text).toBe('용어 :: 설명');
+  });
+});
+
+describe('붙여넣기 가져오기', () => {
+  const MAP = '# 제목\n\n- 가 {tags=a}\n  - 나\n';
+  it('코드블록 울타리가 같이 복사돼도 안쪽만 읽는다', () => {
+    expect(stripOuterFence('````markdown\n' + MAP + '\n````')).toBe(MAP);
+    expect(stripOuterFence('```\n' + MAP + '\n```\n')).toBe(MAP);
+    expect(stripOuterFence(MAP)).toBe(MAP);
+    // 안쪽에 백틱 3개짜리 코드블록이 있어도 바깥 4개 울타리만 걷어 낸다
+    const inner = '# 제목\n- 가\n  > 📌 코드\n  > ```py\n  > x = 1\n  > ```\n';
+    expect(stripOuterFence('````markdown\n' + inner + '````')).toContain('> ```py');
+  });
+  it('붙여넣은 글을 맵으로 만든다', () => {
+    const r = parseImportText('````markdown\n' + MAP + '````');
+    expect(r.mode).toBe('map');
+    expect(r.doc.meta.title).toBe('제목');
+  });
+  it('비어 있으면 오류', () => {
+    expect(() => parseImportText('   \n ')).toThrow('붙여넣은 내용이 없습니다');
+  });
+  it('일반 제목·목록을 붙여넣으면 구조만 가져온다', () => {
+    expect(parseImportText('## 소제목\n- 가\n- 나\n').mode).toBe('outline');
   });
 });
