@@ -114,6 +114,32 @@ export class Vault {
     return { hash: hashContent(content) };
   }
 
+  /** 충돌 검사 없이 쓴다 (링크 갱신, 업로드 등 앱이 직접 만드는 파일용) */
+  async writeRaw(rel: string, content: string | Buffer): Promise<void> {
+    const abs = this.resolve(rel);
+    await fs.mkdir(path.dirname(abs), { recursive: true });
+    await atomicWrite(abs, content);
+  }
+
+  async readBuffer(rel: string): Promise<Buffer> {
+    try {
+      return await fs.readFile(this.resolve(rel));
+    } catch (e) {
+      if ((e as NodeJS.ErrnoException).code === 'ENOENT') throw new HttpError(404, `파일이 없습니다: ${rel}`);
+      throw e;
+    }
+  }
+
+  exists(rel: string): boolean {
+    return existsSync(this.resolve(rel));
+  }
+
+  /** 새 파일만 만든다. 이미 있으면 409 */
+  async createFile(rel: string, content: string): Promise<void> {
+    if (this.exists(rel)) throw new HttpError(409, '같은 이름의 파일이 이미 있습니다');
+    await this.writeRaw(rel, content);
+  }
+
   async createMap(dirRel: string, name: string, content: string): Promise<string> {
     const clean = name.trim();
     if (!clean) throw new HttpError(400, '이름을 입력하세요');
@@ -139,11 +165,19 @@ export class Vault {
     if (existsSync(to)) throw new HttpError(409, '같은 이름이 이미 있습니다');
     if (to.startsWith(from + path.sep)) throw new HttpError(400, '폴더를 자기 안으로 옮길 수 없습니다');
     await fs.mkdir(path.dirname(to), { recursive: true });
-    await fs.rename(from, to);
+    await renameWithRetry(from, to);
     if (from.endsWith(MAP_EXT) && to.endsWith(MAP_EXT)) {
       const fromDir = from.slice(0, -MAP_EXT.length);
       const toDir = to.slice(0, -MAP_EXT.length);
-      if (existsSync(fromDir) && !existsSync(toDir)) await fs.rename(fromDir, toDir);
+      if (existsSync(fromDir) && !existsSync(toDir)) {
+        try {
+          await renameWithRetry(fromDir, toDir);
+        } catch (e) {
+          // 딸린 폴더만 못 옮기면 맵 파일과 폴더가 어긋나므로 맵 파일도 원래대로 되돌린다
+          await renameWithRetry(to, from).catch(() => {});
+          throw e;
+        }
+      }
     }
   }
 
@@ -155,10 +189,17 @@ export class Vault {
     const stamp = new Date().toISOString().replace(/[:.]/g, '-');
     const dest = path.join(this.internalDir, 'trash', stamp, this.toRel(abs));
     await fs.mkdir(path.dirname(dest), { recursive: true });
-    await fs.rename(abs, dest);
+    await renameWithRetry(abs, dest);
     if (abs.endsWith(MAP_EXT)) {
       const dir = abs.slice(0, -MAP_EXT.length);
-      if (existsSync(dir)) await fs.rename(dir, dest.slice(0, -MAP_EXT.length));
+      if (existsSync(dir)) {
+        try {
+          await renameWithRetry(dir, dest.slice(0, -MAP_EXT.length));
+        } catch (e) {
+          await renameWithRetry(dest, abs).catch(() => {});
+          throw e;
+        }
+      }
     }
   }
 
@@ -176,7 +217,7 @@ export class Vault {
   }
 }
 
-async function atomicWrite(abs: string, content: string) {
+async function atomicWrite(abs: string, content: string | Buffer) {
   const tmp = path.join(path.dirname(abs), `.${path.basename(abs)}.${randomBytes(4).toString('hex')}.tmp`);
   await fs.writeFile(tmp, content, 'utf8');
   for (let attempt = 0; ; attempt++) {
@@ -191,6 +232,23 @@ async function atomicWrite(abs: string, content: string) {
         continue;
       }
       await fs.rm(tmp, { force: true });
+      throw e;
+    }
+  }
+}
+
+/** Windows 에서 백신/동기화 프로그램이 파일을 잠깐 잡고 있으면 EPERM/EBUSY 가 날 수 있어 몇 번 재시도한다 */
+async function renameWithRetry(from: string, to: string) {
+  for (let attempt = 0; ; attempt++) {
+    try {
+      await fs.rename(from, to);
+      return;
+    } catch (e) {
+      const code = (e as NodeJS.ErrnoException).code;
+      if (attempt < 5 && (code === 'EPERM' || code === 'EBUSY' || code === 'EACCES')) {
+        await new Promise((r) => setTimeout(r, 50 * (attempt + 1)));
+        continue;
+      }
       throw e;
     }
   }

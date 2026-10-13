@@ -37,14 +37,20 @@ export function estimateSize(node: MapNode, depth: number): Size {
   return { w: Math.min(360, 28 + longest * font * 0.9), h: 14 + lines.length * font * 1.5 };
 }
 
-export function computeLayout(root: MapNode, kind: LayoutKind, sizeOf: (n: MapNode, depth: number) => Size): Layout {
+export function computeLayout(
+  root: MapNode,
+  kind: LayoutKind,
+  sizeOf: (n: MapNode, depth: number) => Size,
+  /** 접혀 있어도 이번 화면에서는 펼쳐 보일 노드 (링크로 이동했을 때) */
+  reveal: ReadonlySet<string> = new Set(),
+): Layout {
   const boxes = new Map<string, Box>();
   const order: Box[] = [];
   const hgap = HGAP[kind];
   const heights = new Map<string, number>();
   const sizes = new Map<string, Size>();
 
-  const visibleKids = (n: MapNode) => (isCollapsed(n) ? [] : n.children);
+  const visibleKids = (n: MapNode) => (isCollapsed(n) && !reveal.has(n.id) ? [] : n.children);
 
   const measure = (n: MapNode, depth: number): number => {
     const s = sizeOf(n, depth);

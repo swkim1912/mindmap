@@ -195,3 +195,58 @@ describe('ops', () => {
     expect(after).toBe(doc);
   });
 });
+
+import {
+  assetsDirFor,
+  extractLinks,
+  formatWikiLink,
+  linkTargetFor,
+  relativePath,
+  resolveLink,
+  rewriteLinks,
+} from '../src';
+
+describe('links', () => {
+  const files = [
+    '예시/운영체제.mm.md',
+    '예시/운영체제/pages/스케줄링.md',
+    '예시/자료구조.mm.md',
+    '영어/pages/스케줄링.md',
+    '영어/필수단어.mm.md',
+  ];
+
+  it('parses link variants', () => {
+    const [a, b, c] = extractLinks('x [[a/b]] y [[자료구조.mm#^x7y8|해시]] [[#^q1]]');
+    expect(a).toMatchObject({ target: 'a/b', anchor: null, label: null });
+    expect(b).toMatchObject({ target: '자료구조.mm', anchor: '^x7y8', label: '해시' });
+    expect(c).toMatchObject({ target: '', anchor: '^q1' });
+    expect(formatWikiLink({ target: 't.mm', nodeId: 'n1', label: 'L' })).toBe('[[t.mm#^n1|L]]');
+  });
+
+  it('resolves exact, partial and name-only targets', () => {
+    const r = (t: string, from = '예시/운영체제.mm.md') => {
+      const [l] = extractLinks(`[[${t}]]`);
+      return resolveLink(l, from, files);
+    };
+    expect(r('예시/운영체제/pages/스케줄링')?.path).toBe('예시/운영체제/pages/스케줄링.md');
+    expect(r('운영체제/pages/스케줄링')?.path).toBe('예시/운영체제/pages/스케줄링.md');
+    expect(r('자료구조.mm#^x7y8')).toEqual({ path: '예시/자료구조.mm.md', nodeId: 'x7y8' });
+    expect(r('필수단어.mm')?.path).toBe('영어/필수단어.mm.md');
+    expect(r('없는파일')).toBeNull();
+    // 같은 이름이 둘이면 가까운 쪽
+    expect(r('스케줄링', '영어/필수단어.mm.md')?.path).toBe('영어/pages/스케줄링.md');
+    expect(r('스케줄링', '예시/운영체제.mm.md')?.path).toBe('예시/운영체제/pages/스케줄링.md');
+    expect(r('#^root')).toEqual({ path: '예시/운영체제.mm.md', nodeId: 'root' });
+    expect(r('../영어/필수단어.mm')?.path).toBe('영어/필수단어.mm.md');
+  });
+
+  it('rewrites links and computes helper paths', () => {
+    const out = rewriteLinks('a [[x|L]] b [[y#^n]]', (l) => (l.target === 'x' ? `[[z|${l.label}]]` : null));
+    expect(out).toBe('a [[z|L]] b [[y#^n]]');
+    expect(linkTargetFor('a/b.mm.md')).toBe('a/b.mm');
+    expect(linkTargetFor('a/p.md')).toBe('a/p');
+    expect(assetsDirFor('예시/운영체제.mm.md')).toBe('예시/운영체제/assets');
+    expect(assetsDirFor('예시/운영체제/pages/p.md')).toBe('예시/운영체제/assets');
+    expect(relativePath('예시/운영체제/pages', '예시/운영체제/assets/a.png')).toBe('../assets/a.png');
+  });
+});

@@ -7,9 +7,11 @@ import { serveStatic } from '@hono/node-server/serve-static';
 import chokidar from 'chokidar';
 import { Hono } from 'hono';
 import { streamSSE } from 'hono/streaming';
-import { newMapSource } from '@mindmap/core';
+import { assetsDirFor, baseName, dirOf, newMapSource, relativePath } from '@mindmap/core';
 import { HttpError, MAP_EXT, Vault, hashContent, isHiddenRel } from './vault';
-import { SAMPLE_MAP } from './sample';
+import { Indexer } from './indexer';
+import { buildMoveMap, rewriteLinksAfterMove } from './linkmove';
+import { SAMPLE_MAP, SAMPLE_MAP_2, SAMPLE_PAGE } from './sample';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const repoRoot = path.resolve(here, '../../..');
@@ -22,15 +24,25 @@ function argValue(name: string): string | undefined {
 const vaultRoot = path.resolve(argValue('--vault') ?? process.env.MINDMAP_VAULT ?? path.join(repoRoot, 'vault'));
 const port = Number(argValue('--port') ?? process.env.MINDMAP_PORT ?? 4321);
 const vault = new Vault(vaultRoot);
+const indexer = new Indexer(vault);
 
 async function initVault() {
   const fresh = !existsSync(vaultRoot);
   await fs.mkdir(vault.internalDir, { recursive: true });
+  // AI용 포맷 설명서. 앱이 만든 것(제목이 같은 것)만 최신 내용으로 갱신하고, 직접 고친 파일은 건드리지 않는다.
   const agents = path.join(vaultRoot, 'AGENTS.md');
-  if (!existsSync(agents)) await fs.copyFile(path.join(repoRoot, 'docs', 'FORMAT.md'), agents);
+  const latest = await fs.readFile(path.join(repoRoot, 'docs', 'FORMAT.md'), 'utf8');
+  if (!existsSync(agents)) await fs.writeFile(agents, latest, 'utf8');
+  else {
+    const cur = await fs.readFile(agents, 'utf8');
+    if (cur !== latest && cur.startsWith('# 마인드맵 Vault 파일 포맷')) await fs.writeFile(agents, latest, 'utf8');
+  }
   if (fresh) {
-    await fs.mkdir(path.join(vaultRoot, '예시'), { recursive: true });
-    await fs.writeFile(path.join(vaultRoot, '예시', `운영체제${MAP_EXT}`), SAMPLE_MAP, 'utf8');
+    const sample = path.join(vaultRoot, '예시');
+    await fs.mkdir(path.join(sample, '운영체제', 'pages'), { recursive: true });
+    await fs.writeFile(path.join(sample, `운영체제${MAP_EXT}`), SAMPLE_MAP, 'utf8');
+    await fs.writeFile(path.join(sample, '운영체제', 'pages', '스케줄링.md'), SAMPLE_PAGE, 'utf8');
+    await fs.writeFile(path.join(sample, `자료구조${MAP_EXT}`), SAMPLE_MAP_2, 'utf8');
   }
 }
 
@@ -45,8 +57,32 @@ const treeChanged = () => {
   treeTimer = setTimeout(() => broadcast({ type: 'tree' }), 150);
 };
 
+let watcher: ReturnType<typeof chokidar.watch> | null = null;
+let opQueue: Promise<unknown> = Promise.resolve();
+
+/**
+ * 폴더를 옮기는 동안 파일 감시를 잠시 멈춘다.
+ * Windows 는 감시 중인 폴더의 이름을 바꾸거나 옮기는 것을 허용하지 않는다 (EPERM).
+ */
+function withWatcherPaused<T>(fn: () => Promise<T>): Promise<T> {
+  const run = async () => {
+    const w = watcher;
+    watcher = null;
+    await w?.close();
+    try {
+      return await fn();
+    } finally {
+      startWatcher();
+      treeChanged();
+    }
+  };
+  const result = opQueue.then(run, run);
+  opQueue = result.catch(() => {});
+  return result;
+}
+
 function startWatcher() {
-  const watcher = chokidar.watch(vaultRoot, {
+  watcher = chokidar.watch(vaultRoot, {
     ignoreInitial: true,
     ignored: (p: string) => {
       const rel = path.relative(vaultRoot, p);
@@ -57,6 +93,7 @@ function startWatcher() {
   const onFile = async (abs: string, removed: boolean) => {
     if (!abs.endsWith('.md')) return;
     const rel = vault.toRel(abs);
+    void indexer.update(rel);
     let hash: string | null = null;
     if (!removed) {
       try {
@@ -109,13 +146,88 @@ app.post('/api/folders', async (c) => {
 
 app.post('/api/rename', async (c) => {
   const { from, to } = await c.req.json<{ from: string; to: string }>();
-  await vault.rename(from, to);
-  return c.json({ ok: true });
+  const oldFiles = await indexer.freshPaths();
+  await withWatcherPaused(() => vault.rename(from, to));
+  // 이동된 파일을 가리키던 [[링크]] 를 새 경로로 고친다
+  const updated = await rewriteLinksAfterMove(vault, oldFiles, buildMoveMap(oldFiles, from, to));
+  await indexer.rebuild();
+  return c.json({ ok: true, updatedLinks: updated.length });
+});
+
+app.get('/api/files', async (c) => {
+  await indexer.ready;
+  return c.json(indexer.paths());
+});
+
+app.get('/api/search', async (c) => {
+  await indexer.ready;
+  return c.json(indexer.search(c.req.query('q') ?? '', Math.min(200, Number(c.req.query('limit')) || 50)));
+});
+
+app.get('/api/backlinks', async (c) => {
+  await indexer.ready;
+  return c.json(indexer.backlinks(c.req.query('path') ?? ''));
+});
+
+/** 팝업 페이지 만들기. path 는 `.md` (맵 파일 `.mm.md` 제외) */
+app.post('/api/pages', async (c) => {
+  const { path: rel, title } = await c.req.json<{ path: string; title: string }>();
+  if (!rel?.endsWith('.md') || rel.endsWith(MAP_EXT)) throw new HttpError(400, '페이지 경로는 .md 로 끝나야 합니다');
+  await vault.createFile(rel, `---
+title: ${JSON.stringify(title ?? baseName(rel).replace(/\.md$/, ''))}
+---
+
+`);
+  return c.json({ path: rel });
+});
+
+const IMAGE_TYPES: Record<string, string> = {
+  png: 'image/png',
+  jpg: 'image/jpeg',
+  jpeg: 'image/jpeg',
+  gif: 'image/gif',
+  webp: 'image/webp',
+  svg: 'image/svg+xml',
+  avif: 'image/avif',
+};
+const MAX_UPLOAD = 25 * 1024 * 1024;
+
+/** 이미지 업로드. from 파일에 딸린 assets/ 폴더에 저장하고, from 기준 상대 경로를 돌려준다 */
+app.post('/api/upload', async (c) => {
+  const from = c.req.query('from') ?? '';
+  const ext = (c.req.query('ext') ?? 'png').toLowerCase().replace(/[^a-z0-9]/g, '');
+  if (!IMAGE_TYPES[ext]) throw new HttpError(400, `지원하지 않는 이미지 형식: ${ext}`);
+  vault.resolve(from);
+  const buf = Buffer.from(await c.req.arrayBuffer());
+  if (!buf.length) throw new HttpError(400, '빈 파일입니다');
+  if (buf.length > MAX_UPLOAD) throw new HttpError(400, '이미지는 25MB 이하여야 합니다');
+  const now = new Date();
+  const pad = (n: number) => String(n).padStart(2, '0');
+  const stamp = `${now.getFullYear()}${pad(now.getMonth() + 1)}${pad(now.getDate())}-${pad(now.getHours())}${pad(now.getMinutes())}${pad(now.getSeconds())}`;
+  const rel = `${assetsDirFor(from)}/${stamp}-${Math.random().toString(36).slice(2, 6)}.${ext}`;
+  await vault.writeRaw(rel, buf);
+  const ref = encodeURI(relativePath(dirOf(from), rel)).replace(/\(/g, '%28').replace(/\)/g, '%29');
+  return c.json({ path: rel, ref });
+});
+
+app.get('/api/asset', async (c) => {
+  const rel = c.req.query('path') ?? '';
+  const ext = rel.slice(rel.lastIndexOf('.') + 1).toLowerCase();
+  const type = IMAGE_TYPES[ext];
+  if (!type) throw new HttpError(400, '이미지 파일만 제공합니다');
+  const buf = await vault.readBuffer(rel);
+  return c.body(new Uint8Array(buf), 200, {
+    'content-type': type,
+    'cache-control': 'no-cache',
+    'x-content-type-options': 'nosniff',
+    'content-security-policy': "sandbox; default-src 'none'; style-src 'unsafe-inline'",
+  });
 });
 
 app.post('/api/trash', async (c) => {
   const { path: rel } = await c.req.json<{ path: string }>();
-  await vault.trash(rel);
+  await withWatcherPaused(() => vault.trash(rel));
+  await indexer.rebuild();
   return c.json({ ok: true });
 });
 
@@ -140,6 +252,7 @@ if (existsSync(dist)) {
 
 await initVault();
 startWatcher();
+void indexer.start();
 serve({ fetch: app.fetch, port, hostname: '127.0.0.1' }, (info) => {
   console.log(`\n  마인드맵 서버: http://localhost:${info.port}`);
   console.log(`  Vault: ${vaultRoot}\n`);

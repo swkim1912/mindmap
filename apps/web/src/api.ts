@@ -1,4 +1,4 @@
-import type { TreeEntry } from './types';
+import type { Backlinks, SearchHit, TreeEntry } from './types';
 
 export class ApiError extends Error {
   constructor(
@@ -30,6 +30,10 @@ export const api = {
   createFolder: (path: string) => req('POST', '/api/folders', { path }),
   rename: (from: string, to: string) => req('POST', '/api/rename', { from, to }),
   trash: (path: string) => req('POST', '/api/trash', { path }),
+  files: () => req<string[]>('GET', '/api/files'),
+  search: (q: string) => req<SearchHit[]>('GET', `/api/search?q=${encodeURIComponent(q)}`),
+  backlinks: (path: string) => req<Backlinks>('GET', `/api/backlinks?path=${encodeURIComponent(path)}`),
+  createPage: (path: string, title: string) => req<{ path: string }>('POST', '/api/pages', { path, title }),
 };
 
 export type VaultEvent = { type: 'file'; path: string; hash: string | null } | { type: 'tree' };

@@ -1,5 +1,9 @@
 import { memo, type ReactNode } from 'react';
 import katex from 'katex';
+import { parseWikiLink } from '@mindmap/core';
+import { useAux } from '../workspace';
+import { linkLabel } from '../markdown';
+import { useStore } from '../store';
 
 const TOKEN_RE =
   /(\$[^$\n]+\$)|(==[^=\n]+==)|(\*\*[^*\n]+\*\*)|(\*[^*\s][^*\n]*\*)|(`[^`\n]+`)|(\[\[[^\]\n]+\]\])|( :: )/g;
@@ -14,11 +18,40 @@ function renderMath(src: string): string {
   return html;
 }
 
-function linkLabel(inner: string): string {
-  const [target, label] = inner.split('|');
-  if (label) return label;
-  const name = target.split('/').pop()!.replace(/\.mm(#.*)?$/, '').replace(/#\^.*$/, '');
-  return name || target;
+/** 노드 안의 [[링크]]: ↗ 를 누르거나 Ctrl+클릭하면 이동. 대상이 없으면 깨진 링크로 표시 */
+function WikiLinkChip({ inner }: { inner: string }) {
+  const link = parseWikiLink(inner);
+  const lookup = useAux((s) => s.lookup);
+  const mapPath = useStore((s) => s.map?.path ?? '');
+  const broken = !lookup.resolve(link, mapPath);
+  const follow = () => void useAux.getState().followLink(link, mapPath);
+  return (
+    <span
+      className={`wikilink ${broken ? 'broken' : ''}`}
+      title={broken ? `대상을 찾을 수 없음: ${inner}` : `${inner}  (Ctrl+클릭으로 열기)`}
+      onClick={(e) => {
+        if (!(e.ctrlKey || e.metaKey)) return;
+        e.stopPropagation();
+        follow();
+      }}
+    >
+      {linkLabel(link.target, link.label)}
+      <button
+        className="link-go"
+        aria-label="링크 열기"
+        onPointerDown={(e) => {
+          e.stopPropagation();
+          e.preventDefault();
+        }}
+        onClick={(e) => {
+          e.stopPropagation();
+          follow();
+        }}
+      >
+        ↗
+      </button>
+    </span>
+  );
 }
 
 function renderInline(text: string, keyPrefix = ''): ReactNode[] {
@@ -34,12 +67,7 @@ function renderInline(text: string, keyPrefix = ''): ReactNode[] {
     else if (bold) out.push(<strong key={k}>{renderInline(bold.slice(2, -2), k)}</strong>);
     else if (italic) out.push(<em key={k}>{renderInline(italic.slice(1, -1), k)}</em>);
     else if (code) out.push(<code key={k}>{code.slice(1, -1)}</code>);
-    else if (link)
-      out.push(
-        <span key={k} className="wikilink" title={link.slice(2, -2)}>
-          {linkLabel(link.slice(2, -2))}
-        </span>,
-      );
+    else if (link) out.push(<WikiLinkChip key={k} inner={link.slice(2, -2)} />);
     else if (sep) out.push(<span key={k} className="card-sep">→</span>);
     else out.push(tok);
     last = m.index + tok.length;

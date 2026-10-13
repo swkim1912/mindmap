@@ -1,10 +1,14 @@
 import { useEffect } from 'react';
 import { useStore } from './store';
+import { useAux } from './workspace';
 import { subscribe } from './api';
 import { Sidebar } from './components/Sidebar';
 import { Toolbar } from './components/Toolbar';
 import { MapCanvas } from './components/MapCanvas';
 import { HelpDialog } from './components/HelpDialog';
+import { PageModal } from './components/PageModal';
+import { QuickFind } from './components/QuickFind';
+import { BacklinksDialog } from './components/BacklinksDialog';
 
 function pathFromHash() {
   const h = decodeURI(location.hash.slice(1));
@@ -19,13 +23,19 @@ export function App() {
   useEffect(() => {
     const st = useStore.getState();
     void st.loadTree();
+    void useAux.getState().loadFiles();
     const p = pathFromHash();
     if (p) void st.openMap(p);
     const unsub = subscribe(
-      (e) => useStore.getState().onVaultEvent(e),
+      (e) => {
+        useStore.getState().onVaultEvent(e);
+        useAux.getState().onVaultEvent(e);
+      },
       () => {
         void useStore.getState().loadTree();
         void useStore.getState().recheckFile();
+        void useAux.getState().loadFiles();
+        void useAux.getState().loadBacklinks();
       },
     );
     const onHash = () => {
@@ -63,6 +73,9 @@ export function App() {
         )}
       </main>
       <HelpDialog />
+      <PageModal />
+      <QuickFind />
+      <BacklinksDialog />
       <div className="toasts">
         {toasts.map((t) => (
           <div key={t.id} className={`toast ${t.kind}`}>

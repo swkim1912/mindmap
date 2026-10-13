@@ -12,12 +12,14 @@ import {
   type MapNode,
 } from '@mindmap/core';
 import { useStore } from '../store';
+import { isOverlayOpen, useAux } from '../workspace';
+import { PostIt } from './PostIt';
 import { commands } from '../commands';
 import { flushEdit, registerCommitter } from '../editing';
 import { computeLayout, edgePath, estimateSize, navigate, type Box, type Layout, type Size } from '../layout';
 import { NodeText } from './NodeText';
 import { branchColor, resolveColor } from '../colors';
-import { canvasControls } from '../controls';
+import { canvasControls, focusSink } from '../controls';
 
 interface View {
   x: number;
@@ -57,10 +59,15 @@ export function MapCanvas() {
   }
   const [fontsTick, setFontsTick] = useState(0);
 
+  const revealIds = useAux((s) => s.revealIds);
+  const openNotes = useAux((s) => s.openNotes);
+  const backlinks = useAux((s) => s.backlinks);
+  const revealSet = useMemo(() => new Set(revealIds), [revealIds]);
+
   const layout = useMemo(
-    () => computeLayout(doc.root, kind, (n, d) => sizes.get(n.id) ?? estimateSize(n, d)),
+    () => computeLayout(doc.root, kind, (n, d) => sizes.get(n.id) ?? estimateSize(n, d), revealSet),
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [doc.root, kind, sizes, fontsTick],
+    [doc.root, kind, sizes, fontsTick, revealSet],
   );
   const layoutRef = useRef(layout);
   layoutRef.current = layout;
@@ -164,6 +171,8 @@ export function MapCanvas() {
   useEffect(() => {
     const vp = viewportRef.current!;
     const onWheel = (e: WheelEvent) => {
+      // 포스트잇 안에서는 내용 스크롤을 우선한다
+      if (!(e.ctrlKey || e.metaKey) && (e.target as HTMLElement).closest?.('.postit-body, .postit-input')) return;
       e.preventDefault();
       if (e.ctrlKey || e.metaKey) {
         const r = vp.getBoundingClientRect();
@@ -283,10 +292,17 @@ export function MapCanvas() {
             isPrimary={primary === b.id}
             isEditing={editingId === b.id}
             descendants={childCount.get(b.id) ?? 0}
+            noteOpen={openNotes.includes(b.id)}
+            revealed={revealSet.has(b.id)}
+            backlinkCount={backlinks?.nodes[b.id]?.length ?? 0}
             drop={drag?.target?.id === b.id ? drag.target.zone : null}
             onPointerDown={onNodePointerDown}
           />
         ))}
+        {openNotes.map((id) => {
+          const b = layout.boxes.get(id);
+          return b && b.node.note !== null ? <PostIt key={id} box={b} mapPath={map.path} /> : null;
+        })}
         {drag && (
           <div className="drag-ghost" style={{ left: drag.cx + 8, top: drag.cy + 8 }}>
             <NodeText text={layout.boxes.get(drag.id)?.node.text ?? ''} />
@@ -296,10 +312,6 @@ export function MapCanvas() {
       <div className="zoom-indicator">{Math.round(view.z * 100)}%</div>
     </div>
   );
-}
-
-function focusSink() {
-  requestAnimationFrame(() => document.querySelector<HTMLTextAreaElement>('textarea[data-sink]')?.focus({ preventScroll: true }));
 }
 
 function isTypingTarget(t: EventTarget | null): boolean {
@@ -330,7 +342,10 @@ function handleKey(e: KeyboardEvent, layout: Layout, zoomAt: (f: number) => void
     if (key === 'Escape') st.setHelp(false);
     return;
   }
-  if (st.editing || isTypingTarget(e.target) || !st.map) return;
+  const aux = useAux.getState();
+  // 대화상자나 팝업 페이지가 열려 있으면 맵 단축키는 쓰지 않는다
+  if (aux.dialog || aux.page) return;
+  if (st.editing || aux.noteEditing || isTypingTarget(e.target) || !st.map) return;
 
   const p = st.primary;
   const handled = () => e.preventDefault();
@@ -344,12 +359,16 @@ function handleKey(e: KeyboardEvent, layout: Layout, zoomAt: (f: number) => void
     if (k === '=' || k === '+') return handled(), zoomAt(1.2);
     if (k === '-') return handled(), zoomAt(1 / 1.2);
     if (key === 'Enter') return handled(), commands.insertParent();
+    if (k === 'p') return handled(), aux.openSearch();
+    if (k === 'k') return handled(), p && aux.openLinkPicker((raw) => aux.appendLinkToNode(p, raw));
+    if (k === 'e') return handled(), p && void aux.openOrCreatePage(p);
     return;
   }
 
   if (e.altKey) {
     if (key === 'ArrowUp') return handled(), commands.move(-1);
     if (key === 'ArrowDown') return handled(), commands.move(1);
+    if (key === 'ArrowLeft') return handled(), void aux.back();
     return;
   }
 
@@ -359,6 +378,11 @@ function handleKey(e: KeyboardEvent, layout: Layout, zoomAt: (f: number) => void
     case 'Enter':
       if (performance.now() - lastImeCommit < 80) return handled();
       return handled(), commands.addSibling(e.shiftKey);
+    case 'F4':
+      handled();
+      if (e.shiftKey) aux.setAllNotes(aux.openNotes.length === 0);
+      else if (p) aux.toggleNote(p);
+      return;
     case 'F2':
     case ' ':
       return handled(), commands.edit();
@@ -416,6 +440,11 @@ function Edges({ layout, kind }: { layout: Layout; kind: LayoutKind }) {
   );
 }
 
+const stopPointer = (e: React.PointerEvent) => {
+  e.stopPropagation();
+  e.preventDefault();
+};
+
 interface NodeViewProps {
   box: Box;
   kind: LayoutKind;
@@ -423,14 +452,29 @@ interface NodeViewProps {
   isPrimary: boolean;
   isEditing: boolean;
   descendants: number;
+  noteOpen: boolean;
+  revealed: boolean;
+  backlinkCount: number;
   drop: DropZone | null;
   onPointerDown: (e: React.PointerEvent, id: string) => void;
 }
 
-const NodeView = memo(function NodeView({ box, kind, selected, isPrimary, isEditing, descendants, drop, onPointerDown }: NodeViewProps) {
+const NodeView = memo(function NodeView({
+  box,
+  kind,
+  selected,
+  isPrimary,
+  isEditing,
+  descendants,
+  noteOpen,
+  revealed,
+  backlinkCount,
+  drop,
+  onPointerDown,
+}: NodeViewProps) {
   const n = box.node;
   const tags = getTags(n);
-  const collapsed = isCollapsed(n);
+  const collapsed = isCollapsed(n) && !revealed;
   const custom = resolveColor(n.attrs.color);
   const accent = custom ?? branchColor(box.branch);
   const cls = [
@@ -464,12 +508,33 @@ const NodeView = memo(function NodeView({ box, kind, selected, isPrimary, isEdit
           <NodeText text={n.text} />
         </div>
       )}
-      {(tags.length > 0 || n.note !== null) && !isEditing && (
+      {(tags.length > 0 || n.note !== null || backlinkCount > 0) && !isEditing && (
         <div className="node-meta">
           {n.note !== null && (
-            <span className="note-badge" title={n.note}>
+            <button
+              className={`note-badge ${noteOpen ? 'open' : ''}`}
+              title="메모 열기/닫기 (F4)"
+              onPointerDown={stopPointer}
+              onClick={(e) => {
+                e.stopPropagation();
+                useAux.getState().toggleNote(n.id);
+              }}
+            >
               📌
-            </span>
+            </button>
+          )}
+          {backlinkCount > 0 && (
+            <button
+              className="bl-badge"
+              title="이 노드를 가리키는 곳 보기"
+              onPointerDown={stopPointer}
+              onClick={(e) => {
+                e.stopPropagation();
+                useAux.getState().openBacklinks(n.id);
+              }}
+            >
+              ↩ {backlinkCount}
+            </button>
           )}
           {tags.map((t) => (
             <span key={t} className="tag">
@@ -555,11 +620,11 @@ function NodeEditor({ node, editing }: { node: MapNode; editing: boolean }) {
   }, [editing, node.text]);
 
   useEffect(() => {
-    ref.current?.focus({ preventScroll: true });
+    if (!isOverlayOpen()) ref.current?.focus({ preventScroll: true });
   }, [node.id, editing]);
 
   const beginByTyping = () => {
-    if (editing) return;
+    if (editing || isOverlayOpen()) return;
     startedByTyping.current = true;
     useStore.getState().startEdit(node.id);
   };
@@ -574,6 +639,10 @@ function NodeEditor({ node, editing }: { node: MapNode; editing: boolean }) {
       spellCheck={false}
       aria-label="주제 편집"
       onChange={(e) => {
+        if (!editing && isOverlayOpen()) {
+          e.target.value = '';
+          return;
+        }
         if (!editing) beginByTyping();
         update(e.target.value);
       }}

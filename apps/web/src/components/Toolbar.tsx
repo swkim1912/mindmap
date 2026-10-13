@@ -1,5 +1,6 @@
 import { getLayout, type LayoutKind } from '@mindmap/core';
 import { useStore } from '../store';
+import { useAux } from '../workspace';
 import { commands } from '../commands';
 import { canvasControls } from '../controls';
 
@@ -13,6 +14,9 @@ export function Toolbar() {
   const saveState = useStore((s) => s.saveState);
   const canUndo = useStore((s) => s.undoStack.length > 0);
   const canRedo = useStore((s) => s.redoStack.length > 0);
+  const canBack = useAux((s) => s.navStack.length > 0);
+  const notesOpen = useAux((s) => s.openNotes.length > 0);
+  const fileBacklinks = useAux((s) => s.backlinks?.file.length ?? 0);
   if (!map) return null;
 
   const layout = getLayout(map.doc);
@@ -24,6 +28,9 @@ export function Toolbar() {
 
   return (
     <header className="toolbar" onMouseDown={noFocus}>
+      <button onClick={() => void useAux.getState().back()} disabled={!canBack} title="이전 위치로 (Alt+←)">
+        ←
+      </button>
       <div className="crumbs" title={map.path}>
         {segs.map((seg, i) => (
           <span key={i} className={i === segs.length - 1 ? 'crumb-last' : 'crumb'}>
@@ -36,6 +43,21 @@ export function Toolbar() {
         <button onClick={() => commands.addSibling()} title="동급 주제 (Enter)">동급 ＋</button>
         <button onClick={() => useStore.getState().undo()} disabled={!canUndo} title="실행 취소 (Ctrl+Z)">↶</button>
         <button onClick={() => useStore.getState().redo()} disabled={!canRedo} title="다시 실행 (Ctrl+Y)">↷</button>
+      </div>
+      <div className="tb-group">
+        <button onClick={() => useAux.getState().toggleNote(useStore.getState().primary!)} title="선택한 노드에 메모 (F4)">
+          📌 메모
+        </button>
+        <button
+          className={notesOpen ? 'on-soft' : ''}
+          onClick={() => useAux.getState().setAllNotes(!notesOpen)}
+          title="모든 메모 열기/닫기 (Shift+F4)"
+        >
+          {notesOpen ? '메모 모두 닫기' : '메모 모두 열기'}
+        </button>
+        <button onClick={() => void useAux.getState().openOrCreatePage(useStore.getState().primary!)} title="상세 페이지 열기/만들기 (Ctrl+E)">
+          📄 페이지
+        </button>
       </div>
       <div className="tb-group segmented">
         <button className={layout === 'mindmap' ? 'on' : ''} onClick={() => setLayout('mindmap')} title="중심에서 좌우로">
@@ -51,6 +73,14 @@ export function Toolbar() {
         <button onClick={() => canvasControls.zoomBy(1.2)} title="확대 (Ctrl+=)">＋</button>
       </div>
       <div className="tb-spacer" />
+      {fileBacklinks > 0 && (
+        <button onClick={() => useAux.getState().openBacklinks(null)} title="이 맵을 가리키는 곳">
+          ↩ {fileBacklinks}
+        </button>
+      )}
+      <button onClick={() => useAux.getState().openSearch()} title="검색 (Ctrl+P)">
+        🔍
+      </button>
       {map.warnings.length > 0 && (
         <span className="warn-chip" title={map.warnings.map((w) => `${w.line}행: ${w.message}`).join('\n')}>
           ⚠ 해석 경고 {map.warnings.length}
