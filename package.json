@@ -1,0 +1,23 @@
+{
+  "name": "mindmap",
+  "private": true,
+  "type": "module",
+  "workspaces": [
+    "packages/*",
+    "apps/*"
+  ],
+  "scripts": {
+    "dev": "concurrently -k -n server,web -c blue,green \"npm run dev -w @mindmap/server\" \"npm run dev -w @mindmap/web\"",
+    "build": "npm run build -w @mindmap/web",
+    "start": "npm run build && npm run start -w @mindmap/server",
+    "test": "vitest run",
+    "typecheck": "tsc -p packages/core && tsc -p apps/server && tsc -p apps/web",
+    "lint:map": "npm run lint -w @mindmap/server --"
+  },
+  "devDependencies": {
+    "@types/node": "^26.6.5",
+    "concurrently": "^10.0.6",
+    "typescript": "^7.0.2",
+    "vitest": "^5.0.4"
+  }
+}

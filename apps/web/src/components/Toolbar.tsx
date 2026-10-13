@@ -1,0 +1,67 @@
+import { getLayout, type LayoutKind } from '@mindmap/core';
+import { useStore } from '../store';
+import { commands } from '../commands';
+import { canvasControls } from '../controls';
+
+const SAVE_LABEL = { saved: '저장됨', dirty: '저장 대기', saving: '저장 중…', error: '저장 오류' } as const;
+
+/** 툴바 버튼은 포커스를 가져가지 않게 해서 맵 단축키가 계속 동작하도록 한다 */
+const noFocus = (e: React.MouseEvent) => e.preventDefault();
+
+export function Toolbar() {
+  const map = useStore((s) => s.map);
+  const saveState = useStore((s) => s.saveState);
+  const canUndo = useStore((s) => s.undoStack.length > 0);
+  const canRedo = useStore((s) => s.redoStack.length > 0);
+  if (!map) return null;
+
+  const layout = getLayout(map.doc);
+  const setLayout = (l: LayoutKind) =>
+    useStore.getState().apply((d) => {
+      d.meta.layout = l;
+    });
+  const segs = map.path.replace(/\.mm\.md$/, '').split('/');
+
+  return (
+    <header className="toolbar" onMouseDown={noFocus}>
+      <div className="crumbs" title={map.path}>
+        {segs.map((seg, i) => (
+          <span key={i} className={i === segs.length - 1 ? 'crumb-last' : 'crumb'}>
+            {seg}
+          </span>
+        ))}
+      </div>
+      <div className="tb-group">
+        <button onClick={() => commands.addChild()} title="하위 주제 (Tab)">하위 ＋</button>
+        <button onClick={() => commands.addSibling()} title="동급 주제 (Enter)">동급 ＋</button>
+        <button onClick={() => useStore.getState().undo()} disabled={!canUndo} title="실행 취소 (Ctrl+Z)">↶</button>
+        <button onClick={() => useStore.getState().redo()} disabled={!canRedo} title="다시 실행 (Ctrl+Y)">↷</button>
+      </div>
+      <div className="tb-group segmented">
+        <button className={layout === 'mindmap' ? 'on' : ''} onClick={() => setLayout('mindmap')} title="중심에서 좌우로">
+          마인드맵
+        </button>
+        <button className={layout === 'logic-right' ? 'on' : ''} onClick={() => setLayout('logic-right')} title="오른쪽으로 펼침">
+          로직 차트
+        </button>
+      </div>
+      <div className="tb-group">
+        <button onClick={() => canvasControls.zoomBy(1 / 1.2)} title="축소 (Ctrl+-)">−</button>
+        <button onClick={() => canvasControls.fit()} title="화면 맞춤 (Ctrl+0)">맞춤</button>
+        <button onClick={() => canvasControls.zoomBy(1.2)} title="확대 (Ctrl+=)">＋</button>
+      </div>
+      <div className="tb-spacer" />
+      {map.warnings.length > 0 && (
+        <span className="warn-chip" title={map.warnings.map((w) => `${w.line}행: ${w.message}`).join('\n')}>
+          ⚠ 해석 경고 {map.warnings.length}
+        </span>
+      )}
+      <button className={`save-state ${saveState}`} onClick={() => void useStore.getState().save()} title="저장 (Ctrl+S)">
+        {SAVE_LABEL[saveState]}
+      </button>
+      <button onClick={() => useStore.getState().setHelp(true)} title="단축키 (F1)">
+        ?
+      </button>
+    </header>
+  );
+}
