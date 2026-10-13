@@ -106,4 +106,39 @@ describe('docs/AI-GUIDE.md', () => {
     expect(all.some((n) => n.note)).toBe(true);
     expect(all.some((n) => n.attrs.color)).toBe(true);
   });
+
+  it('두 번째 예시(6단계 정리)는 레벨 5까지 내려가고 레벨을 건너뛰지 않으며, 절차·부연·약어 병기가 들어 있다', () => {
+    const doc = importMarkdown(blocks[1]).doc;
+    expect(doc.meta.title).toBe('10주차: 객관적 성격검사');
+    expect(doc.meta.layout).toBe('logic-right');
+    let maxDepth = 0;
+    const texts: string[] = [];
+    const walk = (n: MapNode, depth: number) => {
+      maxDepth = Math.max(maxDepth, depth);
+      texts.push(n.text);
+      expect(n.text.trim(), '빈 노드가 없어야 한다').not.toBe('');
+      n.children.forEach((c) => walk(c, depth + 1));
+    };
+    walk(doc.root, 0);
+    expect(maxDepth).toBe(5); // 레벨 0(루트) ~ 레벨 5
+    expect(texts.some((t) => t.startsWith('1) 타당도 확인'))).toBe(true);
+    expect(texts.some((t) => t.includes('\n(T점수 65는'))).toBe(true); // 같은 노드 안 줄바꿈
+    expect(texts).toContain('자극추구(Novelty Seeking)');
+    // 나열 분리: "4개 기질 척도로 구성" 아래에 4개가 각각 노드
+    const group = (() => {
+      let found: MapNode | null = null;
+      const find = (n: MapNode) => (n.text === '4개 기질 척도로 구성' ? (found = n) : n.children.forEach(find));
+      find(doc.root);
+      return found as MapNode | null;
+    })();
+    expect(group?.children).toHaveLength(4);
+  });
+
+  it('가이드의 핵심 지시(전체 보존·6단계·분할 출력·누락 점검·제목 콜론)가 빠지지 않았다', () => {
+    for (const phrase of ['전체 보존', '6단계 논리구조', '요약하지', '나눠서 출력', '누락 점검 보고', '큰따옴표로 감싸', '레벨을 건너뛰지']) {
+      expect(guide, phrase).toContain(phrase);
+    }
+    // 옛 규칙(노드는 짧게, 가지 5~9개, 깊이 3~4단계)은 전체 보존 원칙과 충돌하므로 남아 있으면 안 된다
+    for (const old of ['30자 안팎', '5~9개', '깊이 3~4단계']) expect(guide, old).not.toContain(old);
+  });
 });
