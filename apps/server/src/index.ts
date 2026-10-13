@@ -11,7 +11,7 @@ import { assetsDirFor, baseName, dirOf, newMapSource, relativePath } from '@mind
 import { HttpError, MAP_EXT, Vault, hashContent, isHiddenRel } from './vault';
 import { Indexer } from './indexer';
 import { StudyStore } from './study';
-import { SyncEngine } from './sync';
+import { createSyncEngine } from './sync';
 import { SupabaseRemote, readSupabaseConfig } from './supabase-remote';
 import { buildMoveMap, rewriteLinksAfterMove } from './linkmove';
 import { SAMPLE_MAP, SAMPLE_MAP_2, SAMPLE_PAGE } from './sample';
@@ -38,7 +38,7 @@ try {
 }
 const syncConfig = readSupabaseConfig();
 const syncRemote = syncConfig ? new SupabaseRemote(syncConfig) : null;
-const sync = syncRemote ? new SyncEngine(vault, syncRemote) : null;
+const sync = syncRemote ? createSyncEngine(vault, syncRemote, () => void study.invalidate()) : null;
 
 async function initVault() {
   const fresh = !existsSync(vaultRoot);

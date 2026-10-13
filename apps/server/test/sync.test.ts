@@ -2,13 +2,14 @@ import fs from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import { beforeEach, describe, expect, it } from 'vitest';
-import { SyncEngine, hashBytes, type PutRow, type Remote, type RemoteRow } from '../src/sync';
+import type { PutRow, Remote, RemoteRow, SyncEngine } from '@mindmap/core';
+import { createSyncEngine, hashBytes } from '../src/sync';
 import { Vault } from '../src/vault';
 
 /** 메모리에 두는 가짜 클라우드. updated_at 은 호출 순서대로 늘어나는 값 */
 class FakeRemote implements Remote {
   rows = new Map<string, RemoteRow>();
-  blobs = new Map<string, Buffer>();
+  blobs = new Map<string, Uint8Array>();
   private tick = 0;
   async listSince(cursor: string | null) {
     return [...this.rows.values()].filter((r) => !cursor || r.updated_at > cursor);
@@ -19,7 +20,7 @@ class FakeRemote implements Remote {
   blobName(hash: string, ext: string) {
     return `me/${hash}${ext}`;
   }
-  async uploadBlob(name: string, bytes: Buffer) {
+  async uploadBlob(name: string, bytes: Uint8Array) {
     this.blobs.set(name, bytes);
   }
   async downloadBlob(name: string) {
@@ -56,22 +57,20 @@ beforeEach(async () => {
   root = await fs.mkdtemp(path.join(os.tmpdir(), 'mm-sync-'));
   vault = new Vault(root);
   remote = new FakeRemote();
-  engine = new SyncEngine(vault, remote);
+  engine = createSyncEngine(vault, remote);
 });
 
 describe('SyncEngine', () => {
   it('로컬 파일을 올리고, 이미지는 Storage 로 보낸다', async () => {
     await put('과목/맵.mm.md', MAP);
     await put('과목/맵/assets/a.png', Buffer.from([1, 2, 3, 4]));
-    await put('.mindmap/study.json', '{}');
     const st = await engine.run();
     expect(st.state).toBe('idle');
     expect(st.pushed).toBe(2);
     expect(remote.rows.get('과목/맵.mm.md')?.content).toBe(MAP);
     const img = remote.rows.get('과목/맵/assets/a.png')!;
     expect(img.content).toBeNull();
-    expect(remote.blobs.get(img.blob!)).toEqual(Buffer.from([1, 2, 3, 4]));
-    expect(remote.rows.has('.mindmap/study.json')).toBe(false);
+    expect(Buffer.from(remote.blobs.get(img.blob!)!)).toEqual(Buffer.from([1, 2, 3, 4]));
   });
 
   it('변화가 없으면 두 번째는 아무것도 하지 않는다', async () => {
@@ -155,7 +154,7 @@ describe('SyncEngine', () => {
     await put('맵.mm.md', MAP);
     await engine.run();
     await fs.rm(path.join(root, '.mindmap'), { recursive: true, force: true });
-    const again = new SyncEngine(vault, remote);
+    const again = createSyncEngine(vault, remote);
     const st = await again.run();
     expect(st.state).toBe('idle');
     expect(st.conflicts + st.merged).toBe(0);
@@ -174,5 +173,29 @@ describe('SyncEngine', () => {
     st = await engine.run();
     expect(st.state).toBe('idle');
     expect(remote.rows.get('a.md')?.content).toBe('A');
+  });
+
+  it('복습 기록(study.json)은 카드별로 더 최근 기록을 채택해 합친다', async () => {
+    const rec = (n: number, last: string) => ({ reviews: n, correct: n, streak: n, last, lastKnown: true });
+    const pc = { 'a.mm.md': { x: rec(1, '2026-01-01'), y: rec(5, '2026-03-01') } };
+    const mobile = { 'a.mm.md': { x: rec(3, '2026-02-01'), z: rec(2, '2026-02-02') } };
+    await put('.mindmap/study.json', JSON.stringify({ 'a.mm.md': { x: rec(1, '2026-01-01') } }));
+    await engine.run();
+    expect(remote.rows.get('.mindmap/study.json')).toBeTruthy();
+    await put('.mindmap/study.json', JSON.stringify(pc));
+    await remote.edit('.mindmap/study.json', JSON.stringify(mobile));
+    await engine.run();
+    const merged = JSON.parse(await read('.mindmap/study.json'))['a.mm.md'];
+    expect(merged.x.reviews).toBe(3); // 모바일 기록이 더 최근
+    expect(merged.y.reviews).toBe(5); // PC 에만 있음
+    expect(merged.z.reviews).toBe(2); // 모바일에만 있음
+  });
+
+  it('이상한 경로의 행은 무시한다', async () => {
+    await remote.edit('../밖.md', 'x');
+    await remote.edit('.hidden/a.md', 'x');
+    const st = await engine.run();
+    expect(st.state).toBe('idle');
+    expect(st.pulled).toBe(0);
   });
 });

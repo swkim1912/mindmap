@@ -7,3 +7,5 @@ export * from './ops';
 export * from './template';
 export * from './links';
 export * from './cards';
+export * from './sync';
+export * from './vaultindex';

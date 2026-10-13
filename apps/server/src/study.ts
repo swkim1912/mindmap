@@ -56,6 +56,13 @@ export class StudyStore {
     await atomicWrite(this.file, JSON.stringify(data, null, 1));
   }
 
+  /** 파일이 밖에서(동기화 등) 바뀌었으니 다음 읽기 때 다시 불러온다 */
+  invalidate(): Promise<void> {
+    return this.run(async () => {
+      this.data = null;
+    });
+  }
+
   get(mapPath: string): Promise<Record<string, StudyRecord>> {
     return this.run(async () => (await this.load())[mapPath] ?? {});
   }

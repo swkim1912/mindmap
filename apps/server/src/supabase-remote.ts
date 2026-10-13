@@ -1,5 +1,5 @@
 import { createClient, type SupabaseClient } from '@supabase/supabase-js';
-import type { PutRow, Remote, RemoteRow } from './sync';
+import type { PutRow, Remote, RemoteRow } from '@mindmap/core';
 
 const BUCKET = 'vault-assets';
 const PAGE = 1000;
@@ -72,17 +72,17 @@ export class SupabaseRemote implements Remote {
     return `${this.owner}/${hash}${ext.toLowerCase()}`;
   }
 
-  async uploadBlob(name: string, bytes: Buffer): Promise<void> {
+  async uploadBlob(name: string, bytes: Uint8Array): Promise<void> {
     await this.ownerId();
     const { error } = await this.client.storage.from(BUCKET).upload(name, bytes, { upsert: true, contentType: 'application/octet-stream' });
     if (error) throw new Error(`이미지 업로드 실패: ${error.message}`);
   }
 
-  async downloadBlob(name: string): Promise<Buffer> {
+  async downloadBlob(name: string): Promise<Uint8Array> {
     await this.ownerId();
     const { data, error } = await this.client.storage.from(BUCKET).download(name);
     if (error || !data) throw new Error(`이미지 다운로드 실패: ${error?.message ?? name}`);
-    return Buffer.from(await data.arrayBuffer());
+    return new Uint8Array(await data.arrayBuffer());
   }
 
   /** 다른 기기(모바일)에서 바뀌면 callback 을 부른다. 해제 함수를 돌려준다. */
