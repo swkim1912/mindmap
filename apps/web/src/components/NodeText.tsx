@@ -81,14 +81,14 @@ function renderInline(text: string, keyPrefix = '', ctx?: InlineCtx): ReactNode[
       out.push(
         <mark
           key={k}
-          className={`cloze ${hidden ? 'cloze-hidden' : ''}`}
-          title={hidden ? '클릭해서 보기' : undefined}
+          className={`cloze ${hidden ? 'cloze-hidden' : key !== null ? 'cloze-open' : ''}`}
+          title={key === null ? undefined : hidden ? '클릭해서 보기' : '클릭해서 다시 가리기'}
           onPointerDown={
-            hidden
+            key !== null
               ? (e) => {
                   e.stopPropagation();
                   e.preventDefault();
-                  useStudy.getState().reveal(key!);
+                  useStudy.getState().toggle(key);
                 }
               : undefined
           }

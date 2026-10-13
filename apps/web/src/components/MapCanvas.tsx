@@ -292,7 +292,24 @@ export function MapCanvas() {
     focusSink();
     const study = useStudy.getState();
     if (study.hide) {
-      if (study.hide.scope.has(id) && id !== study.hide.scopeId) study.reveal(`n:${id}`);
+      // 가리기 모드: 탭/클릭하면 가렸다 열었다 한다. 손가락으로 끌면 화면 이동으로 본다.
+      if (!study.hide.scope.has(id) || id === study.hide.scopeId) return;
+      const sx = e.clientX;
+      const sy = e.clientY;
+      let moved = false;
+      const onMove = (ev: PointerEvent) => {
+        if (Math.hypot(ev.clientX - sx, ev.clientY - sy) > 8) moved = true;
+      };
+      const onUp = () => {
+        window.removeEventListener('pointermove', onMove);
+        window.removeEventListener('pointerup', onUp);
+        window.removeEventListener('pointercancel', onUp);
+        if (!moved && !pinching.current) useStudy.getState().toggle(`n:${id}`);
+      };
+      window.addEventListener('pointermove', onMove);
+      window.addEventListener('pointerup', onUp);
+      window.addEventListener('pointercancel', onUp);
+      if (e.pointerType === 'touch') startPan(e);
       return;
     }
     // 터치에서는 노드 위에서 끌어도 화면이 움직인다 (노드 옮기기는 마우스로)
@@ -391,6 +408,7 @@ export function MapCanvas() {
               box={b}
               mapPath={map.path}
               masked={!!hide && hide.scope.has(id) && !hide.revealed.has(`m:${id}`)}
+              maskable={!!hide && hide.scope.has(id)}
               locked={!!hide}
             />
           ) : null;

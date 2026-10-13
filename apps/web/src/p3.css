@@ -86,6 +86,11 @@ button.link:hover:not(:disabled) {
   color: transparent;
 }
 
+/* 이미 드러낸 빈칸: 다시 가릴 수 있다 */
+.node .cloze.cloze-open {
+  cursor: pointer;
+}
+
 /* 가려진 포스트잇 */
 .postit-mask {
   display: block;

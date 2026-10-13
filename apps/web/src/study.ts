@@ -55,6 +55,8 @@ interface Study {
   enterHide(scopeId?: string | null): void;
   exitHide(): void;
   reveal(key: string): void;
+  /** 이미 드러났으면 다시 가리고, 가려져 있으면 드러낸다 */
+  toggle(key: string): void;
   revealNext(fromNodeId: string | null): void;
   revealAll(): void;
   resetHide(): void;
@@ -97,6 +99,14 @@ export const useStudy = create<Study>()((set, get) => ({
     const h = get().hide;
     if (!h || h.revealed.has(key)) return;
     set({ hide: { ...h, revealed: new Set(h.revealed).add(key) } });
+  },
+
+  toggle(key) {
+    const h = get().hide;
+    if (!h) return;
+    const next = new Set(h.revealed);
+    if (!next.delete(key)) next.add(key);
+    set({ hide: { ...h, revealed: next } });
   },
 
   revealNext(fromNodeId) {

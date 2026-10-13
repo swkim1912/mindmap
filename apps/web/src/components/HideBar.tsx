@@ -30,7 +30,7 @@ export function HideBar() {
       </span>
       <progress value={done} max={Math.max(items.length, 1)} />
       <span className="tb-spacer" />
-      <span className="hint">클릭 또는 Space: 하나씩 보기 · Shift+Space: 모두 보기</span>
+      <span className="hint">클릭: 보기 ↔ 다시 가리기 · Space: 다음 보기 · Shift+Space: 모두 보기</span>
       <button onClick={() => st.revealNext(useStore.getState().primary)} title="다음 항목 보기 (Space)">
         다음 보기
       </button>

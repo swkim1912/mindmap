@@ -14,11 +14,13 @@ interface PostItProps {
   mapPath: string;
   /** 가리기 모드에서 아직 드러나지 않음 */
   masked?: boolean;
+  /** 가리기 모드의 대상이라 가렸다 열 수 있음 */
+  maskable?: boolean;
   /** 가리기 모드 중에는 편집할 수 없다 */
   locked?: boolean;
 }
 
-export function PostIt({ box, mapPath, masked = false, locked = false }: PostItProps) {
+export function PostIt({ box, mapPath, masked = false, maskable = false, locked = false }: PostItProps) {
   const node = box.node;
   const editing = useAux((s) => s.noteEditing === node.id);
   const note = node.note ?? '';
@@ -34,6 +36,11 @@ export function PostIt({ box, mapPath, masked = false, locked = false }: PostItP
       <div className="postit-head">
         <span className="postit-title">📌 메모</span>
         <span className="postit-tools">
+          {maskable && !masked && (
+            <button title="다시 가리기" onClick={() => useStudy.getState().toggle(`m:${node.id}`)}>
+              🙈
+            </button>
+          )}
           {!editing && !locked && (
             <button title="편집 (더블클릭)" onClick={() => useAux.getState().startNoteEdit(node.id)}>
               ✎
