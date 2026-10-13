@@ -172,3 +172,36 @@ describe('StudyStore', () => {
     expect(files.some((f) => f.startsWith('study.json.corrupt-'))).toBe(true);
   });
 });
+
+describe('버전 기록과 백업', () => {
+  it('덮어쓸 때 이전 내용이 기록되고 목록·내용을 읽을 수 있다', async () => {
+    const { listHistory, readHistory } = await import('../src/vault');
+    const rel = '과목/자료구조.mm.md';
+    const first = await vault.read(rel);
+    const w1 = await vault.write(rel, first.content + '\n- 추가1 ^z1\n', first.hash);
+    expect(await listHistory(vault, rel)).toHaveLength(1);
+    // 5분 안의 두 번째 덮어쓰기는 보통 기록하지 않지만, 강제하면 남긴다
+    await vault.write(rel, first.content + '\n- 추가2 ^z2\n', w1.hash, { forceSnapshot: true });
+    const list = await listHistory(vault, rel);
+    expect(list).toHaveLength(2);
+    expect(await readHistory(vault, rel, list[1].name)).toBe(first.content);
+    expect(await readHistory(vault, rel, list[0].name)).toContain('추가1');
+    await expect(readHistory(vault, rel, '../../x.md')).rejects.toThrow();
+  });
+
+  it('백업 zip 에 맵·페이지가 들어가고 기록/휴지통은 빠진다', async () => {
+    const { unzipSync } = await import('fflate');
+    const { buildBackup } = await import('../src/backup');
+    const r = await vault.read('과목/운영체제.mm.md');
+    await vault.write('과목/운영체제.mm.md', r.content + '\n- x ^q9\n', r.hash); // history 생성
+    await put('.mindmap/study.json', '{}');
+    await put('.mindmap/sync.json', '{}');
+    const files = unzipSync(await buildBackup(vault));
+    const names = Object.keys(files);
+    expect(names).toContain('과목/운영체제.mm.md');
+    expect(names).toContain('과목/운영체제/pages/스케줄링.md');
+    expect(names).toContain('.mindmap/study.json');
+    expect(names.some((n) => n.includes('history') || n.includes('sync.json') || n.includes('trash'))).toBe(false);
+    expect(new TextDecoder().decode(files['과목/자료구조.mm.md'])).toContain('해시 테이블');
+  });
+});

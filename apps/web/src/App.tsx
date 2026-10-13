@@ -12,6 +12,8 @@ import { BacklinksDialog } from './components/BacklinksDialog';
 import { HideBar } from './components/HideBar';
 import { StudyDialog } from './components/StudyDialog';
 import { MobileBar } from './components/MobileBar';
+import { PortableDialog } from './components/PortableDialog';
+import { HistoryDialog } from './components/HistoryDialog';
 import { useUi } from './ui';
 
 function pathFromHash() {
@@ -84,6 +86,8 @@ export function App() {
       <PageModal />
       <QuickFind />
       <BacklinksDialog />
+      <PortableDialog />
+      <HistoryDialog />
       <StudyDialog />
       <div className="toasts">
         {toasts.map((t) => (

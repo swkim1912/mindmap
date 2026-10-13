@@ -34,7 +34,7 @@ export interface PageState {
   backlinks: BacklinkSource[];
 }
 
-export type DialogKind = 'search' | 'link' | 'backlinks' | null;
+export type DialogKind = 'search' | 'link' | 'backlinks' | 'portable' | 'history' | null;
 
 interface NavEntry {
   path: string;
@@ -88,6 +88,7 @@ interface Aux {
   openSearch(): void;
   openLinkPicker(onPick: (rawLink: string) => void): void;
   openBacklinks(nodeId: string | null): void;
+  openDialog(kind: 'portable' | 'history'): void;
   closeDialog(): void;
   appendLinkToNode(id: string, rawLink: string): void;
   /** 새 페이지 파일을 만들고 경로를 돌려준다 (이름이 겹치면 번호를 붙임) */
@@ -459,6 +460,11 @@ export const useAux = create<Aux>()((set, get) => {
       flushEdit();
       (document.activeElement as HTMLElement | null)?.blur?.();
       set({ dialog: 'link', linkPicker: onPick });
+    },
+    openDialog(kind) {
+      flushEdit();
+      (document.activeElement as HTMLElement | null)?.blur?.();
+      set({ dialog: kind, linkPicker: null });
     },
     openBacklinks(nodeId) {
       set({ dialog: 'backlinks', backlinkNode: nodeId });

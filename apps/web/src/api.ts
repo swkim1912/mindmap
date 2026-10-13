@@ -13,6 +13,12 @@ export class ApiError extends Error {
 
 export type VaultEvent = { type: 'file'; path: string; hash: string | null } | { type: 'tree' };
 
+export interface HistoryEntry {
+  name: string;
+  time: string;
+  size: number;
+}
+
 export interface SyncInfo {
   enabled: boolean;
   state?: 'off' | 'idle' | 'syncing' | 'error';
@@ -38,6 +44,10 @@ export interface Api {
   createPage(path: string, title: string): Promise<{ path: string }>;
   /** 이미지를 from 파일에 딸린 assets/ 에 저장하고 from 기준 상대 경로(ref)를 돌려준다 */
   upload(from: string, file: Blob, ext: string): Promise<string>;
+  /** 이전 버전 (PC 만 지원) */
+  history(path: string): Promise<HistoryEntry[]>;
+  historyFile(path: string, name: string): Promise<{ content: string }>;
+  restore(path: string, name: string, baseHash: string | null): Promise<{ content: string; hash: string }>;
   syncInfo(): Promise<SyncInfo>;
   syncNow(): Promise<SyncInfo>;
 }
@@ -84,6 +94,9 @@ const localApi: Api = {
     if (!res.ok) throw new Error(data.error ?? res.statusText);
     return data.ref as string;
   },
+  history: (path) => req('GET', `/api/history?path=${encodeURIComponent(path)}`),
+  historyFile: (path, name) => req('GET', `/api/history/file?path=${encodeURIComponent(path)}&name=${encodeURIComponent(name)}`),
+  restore: (path, name, baseHash) => req('POST', '/api/history/restore', { path, name, baseHash }),
   syncInfo: () => req('GET', '/api/sync'),
   syncNow: () => req('POST', '/api/sync'),
 };

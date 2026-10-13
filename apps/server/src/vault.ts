@@ -94,7 +94,7 @@ export class Vault {
    * baseHash가 현재 디스크 내용과 다르면 409(충돌)와 함께 디스크 내용을 돌려준다.
    * baseHash가 null이면 새 파일 생성으로 보고, 이미 있으면 409.
    */
-  async write(rel: string, content: string, baseHash: string | null): Promise<{ hash: string }> {
+  async write(rel: string, content: string, baseHash: string | null, opts: { forceSnapshot?: boolean } = {}): Promise<{ hash: string }> {
     const abs = this.resolve(rel);
     let current: string | null = null;
     try {
@@ -108,7 +108,7 @@ export class Vault {
     if (current === null && baseHash !== null) {
       throw new HttpError(409, '파일이 삭제되었습니다', { content: null, hash: null });
     }
-    if (current !== null && current !== content) await this.snapshot(rel, current);
+    if (current !== null && current !== content) await this.snapshot(rel, current, opts.forceSnapshot);
     await fs.mkdir(path.dirname(abs), { recursive: true });
     await atomicWrite(abs, content);
     return { hash: hashContent(content) };
@@ -204,9 +204,9 @@ export class Vault {
   }
 
   /** 덮어쓰기 전 내용을 .mindmap/history 에 보관한다 (파일당 5분에 한 번, 최근 50개) */
-  private async snapshot(rel: string, content: string) {
+  private async snapshot(rel: string, content: string, force = false) {
     const now = Date.now();
-    if (now - (this.lastSnapshot.get(rel) ?? 0) < 5 * 60_000) return;
+    if (!force && now - (this.lastSnapshot.get(rel) ?? 0) < 5 * 60_000) return;
     this.lastSnapshot.set(rel, now);
     const dir = path.join(this.internalDir, 'history', ...rel.split('/'));
     await fs.mkdir(dir, { recursive: true });
@@ -251,5 +251,44 @@ async function renameWithRetry(from: string, to: string) {
       }
       throw e;
     }
+  }
+}
+
+export interface HistoryEntry {
+  name: string;
+  /** 스냅샷을 만든 시각 (ISO) */
+  time: string;
+  size: number;
+}
+
+const SNAP_RE = /^(\d{4}-\d{2}-\d{2})T(\d{2})-(\d{2})-(\d{2})-(\d{3})Z\.md$/;
+
+/** 파일의 이전 버전 목록 (최신순) */
+export async function listHistory(vault: Vault, rel: string): Promise<HistoryEntry[]> {
+  vault.resolve(rel);
+  const dir = path.join(vault.internalDir, 'history', ...rel.split('/'));
+  let names: string[];
+  try {
+    names = await fs.readdir(dir);
+  } catch {
+    return [];
+  }
+  const out: HistoryEntry[] = [];
+  for (const name of names) {
+    const m = SNAP_RE.exec(name);
+    if (!m) continue;
+    const st = await fs.stat(path.join(dir, name));
+    out.push({ name, time: `${m[1]}T${m[2]}:${m[3]}:${m[4]}.${m[5]}Z`, size: st.size });
+  }
+  return out.sort((a, b) => b.name.localeCompare(a.name));
+}
+
+export async function readHistory(vault: Vault, rel: string, name: string): Promise<string> {
+  vault.resolve(rel);
+  if (!SNAP_RE.test(name)) throw new HttpError(400, '올바르지 않은 버전 이름입니다');
+  try {
+    return await fs.readFile(path.join(vault.internalDir, 'history', ...rel.split('/'), name), 'utf8');
+  } catch {
+    throw new HttpError(404, '그 버전이 없습니다');
   }
 }

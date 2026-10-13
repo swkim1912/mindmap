@@ -8,7 +8,8 @@ import chokidar from 'chokidar';
 import { Hono } from 'hono';
 import { streamSSE } from 'hono/streaming';
 import { assetsDirFor, baseName, dirOf, newMapSource, relativePath } from '@mindmap/core';
-import { HttpError, MAP_EXT, Vault, hashContent, isHiddenRel } from './vault';
+import { HttpError, MAP_EXT, Vault, hashContent, isHiddenRel, listHistory, readHistory } from './vault';
+import { buildBackup } from './backup';
 import { Indexer } from './indexer';
 import { StudyStore } from './study';
 import { createSyncEngine } from './sync';
@@ -190,6 +191,27 @@ app.post('/api/study', async (c) => {
   vault.resolve(rel);
   await study.record(rel, results);
   return c.json({ ok: true });
+});
+
+/** 이전 버전: 목록, 내용, 복원. 복원 직전의 현재 내용도 기록에 남는다 */
+app.get('/api/history', async (c) => c.json(await listHistory(vault, c.req.query('path') ?? '')));
+app.get('/api/history/file', async (c) =>
+  c.json({ content: await readHistory(vault, c.req.query('path') ?? '', c.req.query('name') ?? '') }),
+);
+app.post('/api/history/restore', async (c) => {
+  const { path: rel, name, baseHash } = await c.req.json<{ path: string; name: string; baseHash: string | null }>();
+  const content = await readHistory(vault, rel, name);
+  return c.json({ content, ...(await vault.write(rel, content, baseHash ?? null, { forceSnapshot: true })) });
+});
+
+/** Vault 전체 zip 백업 */
+app.get('/api/backup', async (c) => {
+  const zip = await buildBackup(vault);
+  const stamp = new Date().toISOString().slice(0, 10);
+  return c.body(zip as Uint8Array<ArrayBuffer>, 200, {
+    'content-type': 'application/zip',
+    'content-disposition': `attachment; filename="mindmap-backup-${stamp}.zip"`,
+  });
 });
 
 app.get('/api/files', async (c) => {

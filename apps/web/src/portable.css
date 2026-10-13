@@ -1,0 +1,91 @@
+/* ---------- 내보내기/가져오기, 버전 기록 ---------- */
+.modal.portable section {
+  margin-top: 14px;
+}
+.modal.portable h3 {
+  margin: 0 0 6px;
+  font-size: 13px;
+  color: var(--muted);
+}
+.portable-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 6px;
+}
+.portable-list button {
+  width: 100%;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 2px;
+  text-align: left;
+  padding: 8px 10px;
+}
+.portable-list span {
+  font-size: 11px;
+  color: var(--muted);
+}
+.button-link {
+  display: inline-block;
+  padding: 4px 10px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--panel);
+  color: inherit;
+  text-decoration: none;
+}
+.modal.history {
+  width: min(760px, 94vw);
+}
+.history-body {
+  display: grid;
+  grid-template-columns: 220px 1fr;
+  gap: 10px;
+  min-height: 260px;
+  max-height: 56vh;
+}
+.history-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  overflow: auto;
+}
+.history-list button {
+  width: 100%;
+  text-align: left;
+  display: flex;
+  justify-content: space-between;
+  gap: 6px;
+  margin-bottom: 4px;
+}
+.history-list button.on {
+  background: var(--active);
+  border-color: var(--accent-ui);
+}
+.history-list small {
+  color: var(--muted);
+}
+.history-preview {
+  overflow: auto;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 8px;
+  background: var(--bg);
+}
+.history-preview pre {
+  margin: 0;
+  white-space: pre-wrap;
+  word-break: break-word;
+  font-size: 12px;
+}
+@media (max-width: 760px) {
+  .portable-list {
+    grid-template-columns: 1fr;
+  }
+  .history-body {
+    grid-template-columns: 1fr;
+  }
+}

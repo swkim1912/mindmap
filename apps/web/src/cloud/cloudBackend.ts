@@ -207,6 +207,11 @@ export async function buildCloudBackend(remote: Remote, signOut?: () => Promise<
       engine.schedule(2500);
       return encodeURI(relativePath(dirOf(from), rel)).replace(/\(/g, '%28').replace(/\)/g, '%29');
     },
+    async history() {
+      return [];
+    },
+    historyFile: notOnMobile,
+    restore: notOnMobile,
     async syncInfo() {
       return info();
     },

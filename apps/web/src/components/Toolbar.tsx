@@ -102,6 +102,9 @@ export function Toolbar() {
           ↩ {fileBacklinks}
         </button>
       )}
+      <button onClick={() => useAux.getState().openDialog('portable')} title="내보내기 · 가져오기 · 버전 기록 · 백업">
+        ⇅
+      </button>
       <button onClick={() => useAux.getState().openSearch()} title="검색 (Ctrl+P)">
         🔍
       </button>
