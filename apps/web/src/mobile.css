@@ -1,0 +1,189 @@
+/* ---------- 모바일 / 좁은 화면 ---------- */
+.drawer-btn,
+.mobile-bar,
+.drawer-backdrop {
+  display: none;
+}
+.sidebar-sync {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+.sidebar-sync:empty {
+  display: none;
+}
+.sync-badge,
+.signout {
+  font-size: 12px;
+  padding: 2px 8px;
+  color: var(--muted);
+}
+.sync-badge.syncing {
+  color: var(--accent-ui);
+}
+.sync-badge.error {
+  color: var(--danger);
+}
+.sync-badge.offline {
+  color: var(--muted);
+  font-style: italic;
+}
+
+/* 로그인 */
+.gate {
+  min-height: 100%;
+  display: grid;
+  place-items: center;
+  padding: 24px 16px;
+}
+.login {
+  width: min(360px, 100%);
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  padding: 24px;
+  box-shadow: var(--shadow);
+}
+.login h1 {
+  margin: 0 0 4px;
+  font-size: 22px;
+}
+.login label {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  font-size: 13px;
+  color: var(--muted);
+}
+.login input {
+  font: inherit;
+  font-size: 16px; /* iOS 가 확대하지 않도록 */
+  padding: 10px;
+  color: var(--text);
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+}
+.login button {
+  padding: 10px;
+  font-size: 15px;
+  background: var(--accent-ui);
+  color: #fff;
+  border-color: transparent;
+}
+.gate-error {
+  color: var(--danger);
+  font-size: 13px;
+  margin: 0;
+}
+.gate .muted {
+  color: var(--muted);
+}
+
+@media (max-width: 760px), (pointer: coarse) and (max-width: 1100px) {
+  .app {
+    position: relative;
+  }
+  .sidebar {
+    position: fixed;
+    inset: 0 auto 0 0;
+    width: min(300px, 86vw);
+    z-index: 40;
+    transform: translateX(-100%);
+    transition: transform 0.18s ease;
+    padding-top: env(safe-area-inset-top);
+  }
+  .app.drawer-open .sidebar {
+    transform: none;
+    box-shadow: 4px 0 24px rgba(0, 0, 0, 0.25);
+  }
+  .drawer-backdrop {
+    display: block;
+    position: fixed;
+    inset: 0;
+    z-index: 30;
+    background: rgba(0, 0, 0, 0.35);
+    opacity: 0;
+    pointer-events: none;
+    transition: opacity 0.18s ease;
+  }
+  .app.drawer-open .drawer-backdrop {
+    opacity: 1;
+    pointer-events: auto;
+  }
+  .drawer-btn {
+    display: inline-block;
+    font-size: 18px;
+    padding: 4px 12px;
+  }
+  .tree-row {
+    padding: 10px 8px; /* 손가락으로 누르기 쉽게 */
+  }
+  .tree-tools {
+    display: none;
+  }
+
+  .toolbar {
+    flex-wrap: nowrap;
+    overflow-x: auto;
+    gap: 6px;
+    padding: 6px 8px;
+    padding-top: calc(6px + env(safe-area-inset-top));
+    scrollbar-width: none;
+  }
+  .toolbar::-webkit-scrollbar {
+    display: none;
+  }
+  .toolbar > *,
+  .toolbar .tb-group {
+    flex-shrink: 0;
+  }
+  .toolbar button {
+    padding: 8px 12px;
+    white-space: nowrap;
+  }
+  .crumbs {
+    max-width: 38vw;
+    flex-shrink: 1 !important;
+  }
+  .crumb {
+    display: none;
+  }
+  .tb-group.desk,
+  .tb-spacer {
+    display: none;
+  }
+
+  .mobile-bar {
+    display: flex;
+    gap: 2px;
+    padding: 4px 4px calc(4px + env(safe-area-inset-bottom));
+    background: var(--panel);
+    border-top: 1px solid var(--border);
+    overflow-x: auto;
+    scrollbar-width: none;
+  }
+  .mobile-bar button {
+    flex: 1 0 52px;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 1px;
+    padding: 6px 2px;
+    font-size: 18px;
+    line-height: 1.1;
+    border: none;
+    background: transparent;
+  }
+  .mobile-bar button small {
+    font-size: 10px;
+    color: var(--muted);
+  }
+  .toasts {
+    bottom: calc(76px + env(safe-area-inset-bottom));
+  }
+}

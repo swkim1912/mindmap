@@ -198,21 +198,81 @@ export function MapCanvas() {
     return () => vp.removeEventListener('wheel', onWheel);
   }, [zoomAt]);
 
+  // 두 손가락 확대/축소 (터치). 노드 위에서 시작해도 동작하도록 캡처 단계에서 받는다.
+  const pinching = useRef(false);
+  useEffect(() => {
+    const vp = viewportRef.current!;
+    const pts = new Map<number, { x: number; y: number }>();
+    let start: { d: number; z: number; cx: number; cy: number; x: number; y: number } | null = null;
+    const pair = () => {
+      const [a, b] = [...pts.values()];
+      return { d: Math.hypot(a.x - b.x, a.y - b.y) || 1, mx: (a.x + b.x) / 2, my: (a.y + b.y) / 2 };
+    };
+    const down = (e: PointerEvent) => {
+      if (e.pointerType !== 'touch') return;
+      pts.set(e.pointerId, { x: e.clientX, y: e.clientY });
+      if (pts.size === 2) {
+        const r = vp.getBoundingClientRect();
+        const v = viewRef.current;
+        const p = pair();
+        start = { d: p.d, z: v.z, cx: p.mx - r.left, cy: p.my - r.top, x: v.x, y: v.y };
+        pinching.current = true;
+      }
+    };
+    const move = (e: PointerEvent) => {
+      if (!pts.has(e.pointerId)) return;
+      pts.set(e.pointerId, { x: e.clientX, y: e.clientY });
+      if (pts.size !== 2 || !start) return;
+      const r = vp.getBoundingClientRect();
+      const p = pair();
+      const z = Math.max(0.2, Math.min(3, (start.z * p.d) / start.d));
+      // 처음 두 손가락 가운데에 있던 지점이 지금 가운데 아래에 오도록 맞춘다
+      const wx = (start.cx - start.x) / start.z;
+      const wy = (start.cy - start.y) / start.z;
+      setView({ z, x: p.mx - r.left - wx * z, y: p.my - r.top - wy * z });
+    };
+    const up = (e: PointerEvent) => {
+      if (!pts.delete(e.pointerId)) return;
+      if (pts.size < 2) {
+        start = null;
+        // 손가락을 떼는 순간의 이동이 끌기로 이어지지 않도록 잠깐 막는다
+        setTimeout(() => {
+          if (pts.size < 2) pinching.current = false;
+        }, 120);
+      }
+    };
+    vp.addEventListener('pointerdown', down, true);
+    window.addEventListener('pointermove', move);
+    window.addEventListener('pointerup', up);
+    window.addEventListener('pointercancel', up);
+    return () => {
+      vp.removeEventListener('pointerdown', down, true);
+      window.removeEventListener('pointermove', move);
+      window.removeEventListener('pointerup', up);
+      window.removeEventListener('pointercancel', up);
+    };
+  }, []);
+
   // 배경 드래그로 화면 이동
-  const onBackgroundPointerDown = (e: React.PointerEvent) => {
-    if (e.button !== 0 && e.button !== 1) return;
-    e.preventDefault();
-    flushEdit();
-    focusSink();
+  const startPan = (e: React.PointerEvent) => {
     const start = { x: e.clientX, y: e.clientY, v: viewRef.current };
-    const move = (ev: PointerEvent) =>
+    const move = (ev: PointerEvent) => {
+      if (pinching.current) return;
       setView({ ...start.v, x: start.v.x + ev.clientX - start.x, y: start.v.y + ev.clientY - start.y });
+    };
     const up = () => {
       window.removeEventListener('pointermove', move);
       window.removeEventListener('pointerup', up);
     };
     window.addEventListener('pointermove', move);
     window.addEventListener('pointerup', up);
+  };
+  const onBackgroundPointerDown = (e: React.PointerEvent) => {
+    if (e.button !== 0 && e.button !== 1) return;
+    e.preventDefault();
+    flushEdit();
+    focusSink();
+    startPan(e);
   };
 
   const toWorld = (clientX: number, clientY: number) => {
@@ -235,12 +295,15 @@ export function MapCanvas() {
       if (study.hide.scope.has(id) && id !== study.hide.scopeId) study.reveal(`n:${id}`);
       return;
     }
+    // 터치에서는 노드 위에서 끌어도 화면이 움직인다 (노드 옮기기는 마우스로)
+    if (e.pointerType === 'touch') return startPan(e);
     const root = st.map!.doc.root;
     if (id === root.id) return;
     const sx = e.clientX;
     const sy = e.clientY;
     let current: Drag | null = null;
     const move = (ev: PointerEvent) => {
+      if (pinching.current) return;
       if (!current && Math.hypot(ev.clientX - sx, ev.clientY - sy) < 5) return;
       const w = toWorld(ev.clientX, ev.clientY);
       let target: Drag['target'] = null;
@@ -686,6 +749,7 @@ function NodeEditor({ node, editing }: { node: MapNode; editing: boolean }) {
     <textarea
       ref={ref}
       data-sink=""
+      inputMode={editing ? undefined : 'none'}
       className={editing ? 'node-input' : 'node-sink'}
       value={draft}
       rows={1}

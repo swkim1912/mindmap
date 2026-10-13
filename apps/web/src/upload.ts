@@ -1,3 +1,5 @@
+import { api } from './api';
+
 const EXT_BY_TYPE: Record<string, string> = {
   'image/png': 'png',
   'image/jpeg': 'jpg',
@@ -16,10 +18,7 @@ export function imageFiles(list: DataTransfer | null): File[] {
 export async function uploadImage(file: Blob, from: string): Promise<string> {
   const ext = EXT_BY_TYPE[file.type];
   if (!ext) throw new Error(`지원하지 않는 이미지 형식입니다: ${file.type || '알 수 없음'}`);
-  const res = await fetch(`/api/upload?from=${encodeURIComponent(from)}&ext=${ext}`, { method: 'POST', body: file });
-  const data = await res.json().catch(() => ({}));
-  if (!res.ok) throw new Error(data.error ?? res.statusText);
-  return data.ref as string;
+  return api.upload(from, file, ext);
 }
 
 /** 이미지 참조들을 커서 위치에 별도 줄로 넣고 새 값을 돌려준다 */

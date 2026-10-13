@@ -11,6 +11,8 @@ import { QuickFind } from './components/QuickFind';
 import { BacklinksDialog } from './components/BacklinksDialog';
 import { HideBar } from './components/HideBar';
 import { StudyDialog } from './components/StudyDialog';
+import { MobileBar } from './components/MobileBar';
+import { useUi } from './ui';
 
 function pathFromHash() {
   const h = decodeURI(location.hash.slice(1));
@@ -21,6 +23,7 @@ export function App() {
   const hasMap = useStore((s) => !!s.map);
   const mapPath = useStore((s) => s.map?.path);
   const toasts = useStore((s) => s.toasts);
+  const drawer = useUi((s) => s.drawer);
 
   useEffect(() => {
     const st = useStore.getState();
@@ -60,8 +63,9 @@ export function App() {
   }, []);
 
   return (
-    <div className="app">
+    <div className={`app ${drawer ? 'drawer-open' : ''}`}>
       <Sidebar />
+      <div className="drawer-backdrop" onClick={() => useUi.getState().setDrawer(false)} />
       <main className="main">
         <Toolbar />
         <HideBar />
@@ -74,6 +78,7 @@ export function App() {
             <p className="hint">F1을 누르면 단축키를 볼 수 있습니다.</p>
           </div>
         )}
+        {hasMap && <MobileBar />}
       </main>
       <HelpDialog />
       <PageModal />

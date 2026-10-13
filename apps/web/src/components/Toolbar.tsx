@@ -4,11 +4,20 @@ import { useAux } from '../workspace';
 import { useStudy } from '../study';
 import { commands } from '../commands';
 import { canvasControls } from '../controls';
+import { useUi } from '../ui';
 
 const SAVE_LABEL = { saved: '저장됨', dirty: '저장 대기', saving: '저장 중…', error: '저장 오류' } as const;
 
 /** 툴바 버튼은 포커스를 가져가지 않게 해서 맵 단축키가 계속 동작하도록 한다 */
 const noFocus = (e: React.MouseEvent) => e.preventDefault();
+
+function DrawerButton() {
+  return (
+    <button className="drawer-btn" onClick={() => useUi.getState().setDrawer(true)} title="맵 목록">
+      ☰
+    </button>
+  );
+}
 
 export function Toolbar() {
   const map = useStore((s) => s.map);
@@ -19,7 +28,7 @@ export function Toolbar() {
   const notesOpen = useAux((s) => s.openNotes.length > 0);
   const fileBacklinks = useAux((s) => s.backlinks?.file.length ?? 0);
   const hiding = useStudy((s) => s.hide !== null);
-  if (!map) return null;
+  if (!map) return <header className="toolbar only-narrow"><DrawerButton /></header>;
 
   const layout = getLayout(map.doc);
   const setLayout = (l: LayoutKind) =>
@@ -30,6 +39,7 @@ export function Toolbar() {
 
   return (
     <header className="toolbar" onMouseDown={noFocus}>
+      <DrawerButton />
       <button onClick={() => void useAux.getState().back()} disabled={!canBack} title="이전 위치로 (Alt+←)">
         ←
       </button>
@@ -40,13 +50,13 @@ export function Toolbar() {
           </span>
         ))}
       </div>
-      <div className="tb-group">
+      <div className="tb-group desk">
         <button onClick={() => commands.addChild()} disabled={hiding} title="하위 주제 (Tab)">하위 ＋</button>
         <button onClick={() => commands.addSibling()} disabled={hiding} title="동급 주제 (Enter)">동급 ＋</button>
         <button onClick={() => useStore.getState().undo()} disabled={!canUndo || hiding} title="실행 취소 (Ctrl+Z)">↶</button>
         <button onClick={() => useStore.getState().redo()} disabled={!canRedo || hiding} title="다시 실행 (Ctrl+Y)">↷</button>
       </div>
-      <div className="tb-group">
+      <div className="tb-group desk">
         <button onClick={() => useAux.getState().toggleNote(useStore.getState().primary!)} title="선택한 노드에 메모 (F4)">
           📌 메모
         </button>

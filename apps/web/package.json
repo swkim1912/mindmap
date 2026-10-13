@@ -9,6 +9,7 @@
     "preview": "vite preview"
   },
   "dependencies": {
+    "@supabase/supabase-js": "^2.117.3",
     "dompurify": "^3.4.17",
     "highlight.js": "^11.12.0",
     "immer": "^11.1.21",

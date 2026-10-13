@@ -1,7 +1,9 @@
 import { useState } from 'react';
 import { useStore } from '../store';
-import { api } from '../api';
+import { api, getBackend } from '../api';
+import { SignOutButton, SyncBadge } from './SyncBadge';
 import type { TreeEntry } from '../types';
+import { useUi } from '../ui';
 
 const MAP_EXT = '.mm.md';
 
@@ -22,6 +24,7 @@ async function run(fn: () => Promise<unknown>) {
 export function Sidebar() {
   const tree = useStore((s) => s.tree);
   const [folder, setFolder] = useState('');
+  const canManage = getBackend().canManage;
 
   const newMap = () => {
     const name = prompt(`새 맵 이름${folder ? ` (폴더: ${folder})` : ''}`);
@@ -43,7 +46,11 @@ export function Sidebar() {
         <span className="brand">마인드맵</span>
         <div className="sidebar-actions">
           <button onClick={newMap} title="선택한 폴더에 새 맵">＋ 맵</button>
-          <button onClick={newFolder} title="선택한 폴더에 새 폴더">＋ 폴더</button>
+          {canManage && <button onClick={newFolder} title="선택한 폴더에 새 폴더">＋ 폴더</button>}
+        </div>
+        <div className="sidebar-sync">
+          <SyncBadge />
+          <SignOutButton />
         </div>
       </div>
       <div className="tree" onClick={() => setFolder('')}>
@@ -105,15 +112,18 @@ function TreeItem({ entry, depth, folder, setFolder }: TreeItemProps) {
           } else {
             setFolder(parentDir(entry.path));
             void useStore.getState().openMap(entry.path);
+            useUi.getState().setDrawer(false);
           }
         }}
       >
         <span className="tree-icon">{isDir ? (open ? '▾' : '▸') : '◉'}</span>
         <span className="tree-name">{entry.name}</span>
-        <span className="tree-tools">
-          <button onClick={rename} title="이름 바꾸기">✎</button>
-          <button onClick={remove} title="휴지통으로">🗑</button>
-        </span>
+        {getBackend().canManage && (
+          <span className="tree-tools">
+            <button onClick={rename} title="이름 바꾸기">✎</button>
+            <button onClick={remove} title="휴지통으로">🗑</button>
+          </span>
+        )}
       </div>
       {isDir &&
         open &&
