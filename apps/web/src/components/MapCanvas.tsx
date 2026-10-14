@@ -14,7 +14,8 @@ import {
 import { useStore } from '../store';
 import { useAux } from '../workspace';
 import { isEditLocked, isOverlayOpen } from '../overlay';
-import { useStudy } from '../study';
+import { useStudy, type ClozeView } from '../study';
+import { useUi, type TextOps } from '../ui';
 import { PostIt } from './PostIt';
 import { commands } from '../commands';
 import { flushEdit, registerCommitter } from '../editing';
@@ -65,6 +66,7 @@ export function MapCanvas() {
   const openNotes = useAux((s) => s.openNotes);
   const backlinks = useAux((s) => s.backlinks);
   const hide = useStudy((s) => s.hide);
+  const cloze = useStudy((s) => s.cloze);
   const revealSet = useMemo(() => {
     if (!hide) return new Set(revealIds);
     // 가리기 모드: 접힌 가지도 화면에서는 펼쳐서 연습할 구조를 모두 보여 준다
@@ -393,7 +395,8 @@ export function MapCanvas() {
             noteOpen={openNotes.includes(b.id)}
             revealed={revealSet.has(b.id)}
             masked={!!hide && hide.scope.has(b.id) && b.id !== hide.scopeId && !hide.revealed.has(`n:${b.id}`)}
-            clozeRevealed={hide && hide.scope.has(b.id) ? hide.revealed : null}
+            hideRevealed={hide && hide.scope.has(b.id) ? hide.revealed : null}
+            cloze={b.node.text.includes('==') ? cloze : null}
             hideActive={!!hide}
             backlinkCount={backlinks?.nodes[b.id]?.length ?? 0}
             drop={drag?.target?.id === b.id ? drag.target.zone : null}
@@ -581,8 +584,10 @@ interface NodeViewProps {
   revealed: boolean;
   /** 가리기 모드에서 아직 드러나지 않은 노드 */
   masked: boolean;
-  /** 가리기 모드에서 빈칸을 가리는 중이면 이미 드러낸 키 집합 */
-  clozeRevealed: ReadonlySet<string> | null;
+  /** 가리기 모드 범위 안의 노드면 이미 드러낸 키 집합 */
+  hideRevealed: ReadonlySet<string> | null;
+  /** 빈칸이 들어 있는 노드면 가리기 모드 밖의 빈칸 상태 */
+  cloze: ClozeView | null;
   hideActive: boolean;
   backlinkCount: number;
   drop: DropZone | null;
@@ -599,7 +604,8 @@ const NodeView = memo(function NodeView({
   noteOpen,
   revealed,
   masked,
-  clozeRevealed,
+  hideRevealed,
+  cloze,
   hideActive,
   backlinkCount,
   drop,
@@ -635,11 +641,23 @@ const NodeView = memo(function NodeView({
         e.stopPropagation();
         if (!isEditLocked()) useStore.getState().startEdit(n.id);
       }}
+      onContextMenu={(e) => {
+        e.preventDefault();
+        e.stopPropagation();
+        // 글자를 고치는 중이면 편집기가 만든 글자 메뉴를 쓴다 (NodeEditor 의 onContextMenu)
+        if (isEditing) return;
+        const st = useStore.getState();
+        if (!st.selected.includes(n.id)) st.select(n.id);
+        useUi.getState().openCtx({ x: e.clientX, y: e.clientY, nodeId: n.id, text: null });
+      }}
     >
       {isPrimary && <NodeEditor node={n} editing={isEditing} />}
       {!isEditing && (
         <div className="node-text">
-          <NodeText text={n.text} mask={clozeRevealed ? { nodeId: n.id, revealed: clozeRevealed } : undefined} />
+          <NodeText
+            text={n.text}
+            mask={cloze ? { nodeId: n.id, revealed: hideRevealed, all: cloze.all, flipped: cloze.flipped } : undefined}
+          />
         </div>
       )}
       {(tags.length > 0 || n.note !== null || backlinkCount > 0) && !isEditing && !masked && (
@@ -757,6 +775,65 @@ function NodeEditor({ node, editing }: { node: MapNode; editing: boolean }) {
     if (!isOverlayOpen()) ref.current?.focus({ preventScroll: true });
   }, [node.id, editing]);
 
+  /** 오른쪽 클릭 메뉴에 넘길 글자 동작. 선택이 없으면 커서가 놓인 낱말을 대상으로 한다 */
+  const makeTextOps = (): TextOps | null => {
+    const el = ref.current;
+    if (!el) return null;
+    const hasSel = el.selectionEnd > el.selectionStart;
+    const range = () => {
+      const v = draftRef.current;
+      let s = el.selectionStart;
+      let e = el.selectionEnd;
+      if (e <= s) {
+        while (s > 0 && !/\s/.test(v[s - 1])) s--;
+        while (e < v.length && !/\s/.test(v[e])) e++;
+      }
+      return { s, e, v };
+    };
+    const put = (next: string, selStart: number, selEnd: number) => {
+      update(next);
+      requestAnimationFrame(() => {
+        el.focus({ preventScroll: true });
+        el.setSelectionRange(selStart, selEnd);
+      });
+    };
+    return {
+      hasSel,
+      wrap(open, close) {
+        const { s, e, v } = range();
+        const sel = v.slice(s, e);
+        if (v.slice(s - open.length, s) === open && v.slice(e, e + close.length) === close && s >= open.length) {
+          // 바깥에 이미 감싸져 있으면 벗긴다
+          put(v.slice(0, s - open.length) + sel + v.slice(e + close.length), s - open.length, e - open.length);
+        } else if (sel.length >= open.length + close.length && sel.startsWith(open) && sel.endsWith(close)) {
+          // 선택 안에 감싸진 채로 들어 있으면 벗긴다
+          const inner = sel.slice(open.length, sel.length - close.length);
+          put(v.slice(0, s) + inner + v.slice(e), s, s + inner.length);
+        } else {
+          put(v.slice(0, s) + open + sel + close + v.slice(e), s + open.length, e + open.length);
+        }
+      },
+      copy() {
+        el.focus({ preventScroll: true });
+        document.execCommand('copy');
+      },
+      cut() {
+        el.focus({ preventScroll: true });
+        document.execCommand('cut');
+      },
+      paste() {
+        void navigator.clipboard
+          ?.readText()
+          .then((t) => {
+            el.focus({ preventScroll: true });
+            el.setRangeText(t, el.selectionStart, el.selectionEnd, 'end');
+            update(el.value);
+          })
+          .catch(() => useStore.getState().toast('붙여넣기 권한이 없습니다. Ctrl+V 를 쓰세요', 'error'));
+      },
+    };
+  };
+
   const beginByTyping = () => {
     if (editing || isOverlayOpen() || isEditLocked()) return;
     startedByTyping.current = true;
@@ -791,7 +868,19 @@ function NodeEditor({ node, editing }: { node: MapNode; editing: boolean }) {
           }, 0);
         }
       }}
+      onContextMenu={(e) => {
+        if (!editing) return; // 평소에는 노드의 메뉴(NodeView)가 처리한다
+        e.preventDefault();
+        e.stopPropagation();
+        useUi.getState().openCtx({ x: e.clientX, y: e.clientY, nodeId: node.id, text: makeTextOps() });
+      }}
       onKeyDown={(e) => {
+        if (editing && useUi.getState().ctx) {
+          // 메뉴가 열려 있을 때의 Esc 는 메뉴만 닫는다 (편집은 유지)
+          e.stopPropagation();
+          if (e.key === 'Escape') e.preventDefault(), useUi.getState().openCtx(null);
+          return;
+        }
         if (!editing) return;
         e.stopPropagation();
         const composing = e.nativeEvent.isComposing || e.keyCode === 229;

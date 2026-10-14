@@ -1,4 +1,4 @@
-import { getLayout, type LayoutKind } from '@mindmap/core';
+import { getLayout, hideItems, type LayoutKind } from '@mindmap/core';
 import { useStore } from '../store';
 import { useAux } from '../workspace';
 import { useStudy } from '../study';
@@ -12,9 +12,41 @@ const SAVE_LABEL = { saved: '저장됨', dirty: '저장 대기', saving: '저장
 const noFocus = (e: React.MouseEvent) => e.preventDefault();
 
 function DrawerButton() {
+  const hidden = useUi((s) => s.sidebarHidden);
   return (
-    <button className="drawer-btn" onClick={() => useUi.getState().setDrawer(true)} title="맵 목록">
-      ☰
+    <>
+      {/* 좁은 화면: 서랍으로 연다 */}
+      <button className="drawer-btn" onClick={() => useUi.getState().setDrawer(true)} title="맵 목록">
+        ☰
+      </button>
+      {/* 넓은 화면: 접어 둔 사이드바를 다시 편다 */}
+      {hidden && (
+        <button className="sidebar-show-btn" onClick={() => useUi.getState().setSidebarHidden(false)} title="맵 목록 펴기">
+          ☰
+        </button>
+      )}
+    </>
+  );
+}
+
+/** 맵의 모든 빈칸(==…==)을 한 번에 가리거나 연다. 가리기 모드 중에는 그 모드의 빈칸에 적용된다. */
+function ClozeAllButton() {
+  const anyHidden = useStudy((s) => s.anyClozeHidden());
+  const doc = useStore((s) => s.map?.doc);
+  return (
+    <button
+      className={anyHidden ? 'on-soft' : ''}
+      onClick={() => {
+        if (!doc) return;
+        if (!hideItems(doc, doc.root.id).some((i) => i.kind === 'cloze')) {
+          useStore.getState().toast('이 맵에는 ==빈칸== 이 없습니다');
+          return;
+        }
+        useStudy.getState().setAllClozes(!anyHidden);
+      }}
+      title={anyHidden ? '가려진 빈칸을 모두 열기' : '==빈칸== 을 모두 가리기 (빈칸을 클릭하면 하나씩 열고 닫기)'}
+    >
+      {anyHidden ? '👁 빈칸 모두 열기' : '▮ 빈칸 모두 가리기'}
     </button>
   );
 }
@@ -79,6 +111,7 @@ export function Toolbar() {
         >
           🙈 가리기
         </button>
+        <ClozeAllButton />
         <button onClick={() => void useStudy.getState().openSetup()} title="질문 :: 답 / ==빈칸== 을 카드로 복습">
           🃏 카드
         </button>

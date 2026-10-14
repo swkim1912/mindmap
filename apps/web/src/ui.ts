@@ -8,7 +8,42 @@ export interface TreeMenuState {
   y: number;
 }
 
+/** 편집 중인 글자에 대한 동작 (편집기가 만들어서 메뉴에 넘긴다) */
+export interface TextOps {
+  hasSel: boolean;
+  /** 선택한 글자(없으면 커서가 있는 낱말)를 open…close 로 감싼다. 이미 감싸져 있으면 벗긴다 */
+  wrap(open: string, close: string): void;
+  copy(): void;
+  cut(): void;
+  paste(): void;
+}
+
+export interface CtxMenuState {
+  x: number;
+  y: number;
+  nodeId: string;
+  /** 노드 글자를 고치는 중에 연 메뉴면 글자용 동작이 들어 있다 */
+  text: TextOps | null;
+}
+
+const SIDEBAR_KEY = 'mindmap.sidebarHidden';
+function loadSidebarHidden(): boolean {
+  try {
+    return localStorage.getItem(SIDEBAR_KEY) === '1';
+  } catch {
+    return false;
+  }
+}
+
 interface Ui {
+  /** 넓은 화면에서 사이드바를 접었는지 (기억해 둔다) */
+  sidebarHidden: boolean;
+  setSidebarHidden(v: boolean): void;
+
+  /** 맵 위(노드·글자)에서 오른쪽 클릭으로 여는 메뉴 */
+  ctx: CtxMenuState | null;
+  openCtx(m: CtxMenuState | null): void;
+
   /** 좁은 화면에서 사이드바(맵 목록)를 서랍처럼 여닫는 상태 */
   drawer: boolean;
   setDrawer(v: boolean): void;
@@ -30,6 +65,17 @@ interface Ui {
 }
 
 export const useUi = create<Ui>((set) => ({
+  sidebarHidden: loadSidebarHidden(),
+  setSidebarHidden: (sidebarHidden) => {
+    try {
+      localStorage.setItem(SIDEBAR_KEY, sidebarHidden ? '1' : '0');
+    } catch {
+      /* 저장소를 못 써도 이번 화면에서는 접힌다 */
+    }
+    set({ sidebarHidden });
+  },
+  ctx: null,
+  openCtx: (ctx) => set({ ctx }),
   drawer: false,
   setDrawer: (drawer) => set({ drawer }),
   menu: null,

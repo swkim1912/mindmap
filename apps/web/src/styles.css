@@ -394,11 +394,15 @@ button:disabled {
   top: 50%;
   transform: translateY(-50%);
   min-width: 18px;
+  width: max-content; /* 두 자리 이상도 원(알약) 안에 들어가도록 글자 너비만큼 늘린다 */
   height: 18px;
-  padding: 0 4px;
+  padding: 0 5px;
   border-radius: 9px;
   font-size: 11px;
-  line-height: 16px;
+  line-height: 15px;
+  white-space: nowrap;
+  overflow-wrap: normal;
+  word-break: keep-all;
   font-weight: 600;
   border: 1.5px solid var(--accent, var(--root-edge));
   background: var(--panel);

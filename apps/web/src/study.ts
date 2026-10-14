@@ -46,7 +46,23 @@ export interface Session {
   answers: number;
 }
 
+/** 가리기 모드가 아닐 때의 빈칸 표시 상태: all 이면 기본이 "가림", flipped 는 그 반대로 뒤집은 빈칸 */
+export interface ClozeView {
+  all: boolean;
+  flipped: ReadonlySet<string>;
+}
+
+const NO_FLIPS: ReadonlySet<string> = new Set();
+
 interface Study {
+  cloze: ClozeView;
+  /** 가리기 모드 밖에서 빈칸 하나를 가렸다 열었다 한다 */
+  toggleCloze(key: string): void;
+  /** 모든 빈칸을 가리거나(true) 연다(false). 가리기 모드 중에는 모드 안의 빈칸에 적용 */
+  setAllClozes(hidden: boolean): void;
+  /** 지금 가려진 빈칸이 하나라도 있는지 (버튼 이름 결정용) */
+  anyClozeHidden(): boolean;
+
   hide: HideState | null;
   setup: SetupOptions | null;
   records: Record<string, StudyRecord>;
@@ -74,6 +90,38 @@ interface Study {
 let postFailedToasted = false;
 
 export const useStudy = create<Study>()((set, get) => ({
+  cloze: { all: false, flipped: NO_FLIPS },
+
+  toggleCloze(key) {
+    const c = get().cloze;
+    const flipped = new Set(c.flipped);
+    if (!flipped.delete(key)) flipped.add(key);
+    set({ cloze: { ...c, flipped } });
+  },
+
+  setAllClozes(hidden) {
+    const h = get().hide;
+    const m = useStore.getState().map;
+    if (h && m) {
+      const keys = new Set(h.revealed);
+      for (const it of hideItems(m.doc, h.scopeId)) {
+        if (it.kind !== 'cloze') continue;
+        if (hidden) keys.delete(it.key);
+        else keys.add(it.key);
+      }
+      set({ hide: { ...h, revealed: keys } });
+    }
+    // 모드 밖(혹은 모드 범위 밖)의 빈칸도 같은 상태로 맞춘다
+    set({ cloze: { all: hidden, flipped: NO_FLIPS } });
+  },
+
+  anyClozeHidden() {
+    const { hide: h, cloze: c } = get();
+    const m = useStore.getState().map;
+    if (h && m) return hideItems(m.doc, h.scopeId).some((it) => it.kind === 'cloze' && !h.revealed.has(it.key));
+    return c.all || c.flipped.size > 0;
+  },
+
   hide: null,
   setup: null,
   records: {},
@@ -223,5 +271,5 @@ export const useStudy = create<Study>()((set, get) => ({
 // 맵을 바꾸면 가리기 모드/복습 화면을 닫는다
 useStore.subscribe((s, prev) => {
   if (s.map?.path === prev.map?.path) return;
-  useStudy.setState({ hide: null, setup: null, session: null });
+  useStudy.setState({ hide: null, setup: null, session: null, cloze: { all: false, flipped: NO_FLIPS } });
 });

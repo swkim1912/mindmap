@@ -33,7 +33,12 @@ export function Sidebar() {
   return (
     <aside className="sidebar">
       <div className="sidebar-head">
-        <span className="brand">마인드맵</span>
+        <div className="brand-row">
+          <span className="brand">마인드맵</span>
+          <button className="sidebar-hide-btn" onClick={() => useUi.getState().setSidebarHidden(true)} title="사이드바 접기" aria-label="사이드바 접기">
+            «
+          </button>
+        </div>
         <div className="sidebar-actions">
           <button onClick={() => newMap(folder)} title="선택한 폴더에 새 맵">
             ＋ 맵

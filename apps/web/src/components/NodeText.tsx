@@ -58,7 +58,11 @@ function WikiLinkChip({ inner }: { inner: string }) {
 /** 가리기 모드에서 빈칸을 가리기 위한 정보. 빈칸 번호는 텍스트 안의 등장 순서(core 의 hideItems 와 같음) */
 export interface ClozeMask {
   nodeId: string;
-  revealed: ReadonlySet<string>;
+  /** 가리기 모드 안의 노드면 이미 드러낸 키 집합 (그 밖에는 null) */
+  revealed: ReadonlySet<string> | null;
+  /** 가리기 모드 밖의 상태: all 이면 기본이 "가림", flipped 는 반대로 뒤집은 빈칸 */
+  all: boolean;
+  flipped: ReadonlySet<string>;
 }
 
 interface InlineCtx {
@@ -77,18 +81,30 @@ function renderInline(text: string, keyPrefix = '', ctx?: InlineCtx): ReactNode[
     if (math) out.push(<span key={k} className="math" dangerouslySetInnerHTML={{ __html: renderMath(math.slice(1, -1)) }} />);
     else if (cloze) {
       const key = ctx ? `c:${ctx.mask.nodeId}#${ctx.counter.n++}` : null;
-      const hidden = key !== null && !ctx!.mask.revealed.has(key);
+      const m = ctx?.mask;
+      const inHide = !!m?.revealed;
+      const hidden = key !== null && m !== undefined && (m.revealed ? !m.revealed.has(key) : m.all !== m.flipped.has(key));
       out.push(
         <mark
           key={k}
           className={`cloze ${hidden ? 'cloze-hidden' : key !== null ? 'cloze-open' : ''}`}
-          title={key === null ? undefined : hidden ? '클릭해서 보기' : '클릭해서 다시 가리기'}
+          title={key === null ? undefined : hidden ? '클릭해서 보기' : '클릭해서 가리기'}
+          // 가리기 모드에서는 노드 자체의 탭 처리와 겹치지 않게 누르는 즉시 처리하고,
+          // 평소에는 클릭으로 처리해서 노드 선택·끌기는 그대로 동작하게 한다
           onPointerDown={
-            key !== null
+            inHide
               ? (e) => {
                   e.stopPropagation();
                   e.preventDefault();
-                  useStudy.getState().toggle(key);
+                  useStudy.getState().toggle(key!);
+                }
+              : undefined
+          }
+          onClick={
+            key !== null && !inHide
+              ? (e) => {
+                  e.stopPropagation();
+                  useStudy.getState().toggleCloze(key);
                 }
               : undefined
           }

@@ -184,3 +184,14 @@
     bottom: calc(76px + env(safe-area-inset-bottom));
   }
 }
+
+/* 사이드바 접기는 넓은 화면 전용 (좁은 화면은 서랍) */
+@media (max-width: 760px), (pointer: coarse) and (max-width: 1100px) {
+  .sidebar-hide-btn,
+  .sidebar-show-btn {
+    display: none;
+  }
+  .app.sidebar-hidden .sidebar {
+    display: flex;
+  }
+}

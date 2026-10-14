@@ -217,3 +217,68 @@ button.danger,
     align-items: stretch;
   }
 }
+
+/* ---------- 사이드바 접기 ---------- */
+.brand-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+.sidebar-hide-btn {
+  border: none;
+  background: transparent;
+  color: var(--muted);
+  padding: 2px 8px;
+  font-size: 16px;
+  line-height: 1;
+}
+.sidebar-hide-btn:hover {
+  color: var(--text);
+}
+.app.sidebar-hidden .sidebar {
+  display: none;
+}
+.sidebar-show-btn {
+  font-size: 16px;
+  padding: 3px 10px;
+}
+
+/* ---------- 노드 오른쪽 클릭 메뉴 ---------- */
+.node-menu {
+  min-width: 210px;
+}
+.node-menu .tree-menu-title {
+  max-width: 220px;
+}
+.node-menu button:disabled {
+  opacity: 0.4;
+}
+.menu-sep {
+  height: 1px;
+  margin: 4px 6px;
+  background: var(--border);
+}
+.menu-colors {
+  display: flex;
+  gap: 6px;
+  padding: 6px 10px;
+  flex-wrap: wrap;
+}
+.node-menu .menu-colors .swatch {
+  width: 22px;
+  height: 22px;
+  padding: 0;
+  border-radius: 50%;
+  border: 2px solid transparent;
+  text-align: center;
+  line-height: 18px;
+  font-size: 12px;
+  color: var(--muted);
+}
+.node-menu .menu-colors .swatch.on {
+  border-color: var(--text);
+}
+.node-menu .menu-colors .swatch.none {
+  background: transparent;
+  border: 1px dashed var(--border);
+}

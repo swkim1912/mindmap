@@ -16,6 +16,7 @@ import { PortableDialog } from './components/PortableDialog';
 import { HistoryDialog } from './components/HistoryDialog';
 import { TreeMenu, MoveDialog, DeleteDialog } from './components/TreeDialogs';
 import { TrashDialog } from './components/TrashDialog';
+import { NodeContextMenu } from './components/NodeMenu';
 import { useUi } from './ui';
 
 function pathFromHash() {
@@ -28,6 +29,7 @@ export function App() {
   const mapPath = useStore((s) => s.map?.path);
   const toasts = useStore((s) => s.toasts);
   const drawer = useUi((s) => s.drawer);
+  const sidebarHidden = useUi((s) => s.sidebarHidden);
 
   useEffect(() => {
     const st = useStore.getState();
@@ -67,7 +69,7 @@ export function App() {
   }, []);
 
   return (
-    <div className={`app ${drawer ? 'drawer-open' : ''}`}>
+    <div className={`app ${drawer ? 'drawer-open' : ''} ${sidebarHidden ? 'sidebar-hidden' : ''}`}>
       <Sidebar />
       <div className="drawer-backdrop" onClick={() => useUi.getState().setDrawer(false)} />
       <main className="main">
@@ -92,6 +94,7 @@ export function App() {
       <HistoryDialog />
       <TrashDialog />
       <TreeMenu />
+      <NodeContextMenu />
       <MoveDialog />
       <DeleteDialog />
       <StudyDialog />
